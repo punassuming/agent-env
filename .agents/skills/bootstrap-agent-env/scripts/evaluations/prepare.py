@@ -33,7 +33,8 @@ def project(root: Path, files: dict[str, str]) -> None:
 
 def version(argv: list[str]) -> str:
     try:
-        result = subprocess.run(argv, capture_output=True, text=True, timeout=10, check=True)
+        result = subprocess.run([shutil.which(argv[0]) or argv[0], *argv[1:]],
+                                capture_output=True, text=True, timeout=10, check=True)
         return result.stdout.strip().splitlines()[0]
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return 'unavailable'

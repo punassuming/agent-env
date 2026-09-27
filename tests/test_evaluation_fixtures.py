@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -28,7 +29,7 @@ class ControlledEvaluationFixtures(unittest.TestCase):
             self.assertTrue((root / 'express-react-router/web/src/main.jsx').is_file())
             for child in ('api', 'web'):
                 self.assertTrue((root / 'sails-react-router-split' / child / '.git').is_dir())
-            check = subprocess.run(['npm', 'test'], cwd=root / 'sails-react-router-split/api',
+            check = subprocess.run([shutil.which('npm') or 'npm', 'test'], cwd=root / 'sails-react-router-split/api',
                                    capture_output=True, text=True)
             self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
             self.assertIn('pass 1', check.stdout)
@@ -50,7 +51,8 @@ class ControlledEvaluationFixtures(unittest.TestCase):
                       ('split-workspace/frontend', ['npm', 'test'])]
             for name, argv in checks:
                 with self.subTest(name=name):
-                    test = subprocess.run(argv, cwd=output / name, capture_output=True, text=True)
+                    test = subprocess.run([shutil.which(argv[0]) or argv[0], *argv[1:]],
+                                          cwd=output / name, capture_output=True, text=True)
                     self.assertEqual(test.returncode, 0, test.stdout + test.stderr)
                     self.assertTrue((output / name / 'EVAL_ENV.md').is_file())
 
@@ -101,6 +103,7 @@ class ControlledEvaluationFixtures(unittest.TestCase):
             site = output / 'static-html-kube'
             for argv in (['npm', 'test'], ['npm', 'run', 'lint'], ['npm', 'run', 'build']):
                 with self.subTest(argv=argv):
-                    test = subprocess.run(argv, cwd=site, capture_output=True, text=True)
+                    test = subprocess.run([shutil.which(argv[0]) or argv[0], *argv[1:]],
+                                          cwd=site, capture_output=True, text=True)
                     self.assertEqual(test.returncode, 0, test.stdout + test.stderr)
             self.assertTrue((site / 'dist/index.html').is_file())

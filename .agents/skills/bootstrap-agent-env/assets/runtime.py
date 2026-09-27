@@ -334,7 +334,8 @@ def run_step(base: Path, registry: dict, component: str, command: str,
     output = bytearray()
     total = 0
     try:
-        with subprocess.Popen(argv, cwd=workdir, env=env, stdout=subprocess.PIPE,
+        launcher = [shutil.which(argv[0]) or argv[0], *argv[1:]] if os.name == "nt" else argv
+        with subprocess.Popen(launcher, cwd=workdir, env=env, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT) as process:
             assert process.stdout is not None
             decoder = codecs.getincrementaldecoder("utf-8")("replace")

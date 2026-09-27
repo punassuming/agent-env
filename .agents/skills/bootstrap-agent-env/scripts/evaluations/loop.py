@@ -61,7 +61,7 @@ def command_evidence(path: Path, components: dict) -> tuple[str, list[str]]:
                         continue
                     candidate = (path / component.get('path', '.') / arg).resolve()
                     if candidate.is_relative_to(root) and candidate.is_file() and candidate.stat().st_size < 65536:
-                        relative = str(candidate.relative_to(root))
+                        relative = candidate.relative_to(root).as_posix()
                         adapters.append(relative)
                         blob += '\n' + candidate.read_text(encoding='utf-8', errors='replace').lower()
     return blob, sorted(set(adapters))
@@ -78,7 +78,7 @@ def source_digest(source: Path) -> str:
     for root in roots:
         for path in ([root] if root.is_file() else sorted(root.rglob('*')) if root.exists() else []):
             if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc':
-                sha.update(str(path.relative_to(source)).encode('utf-8'))
+                sha.update(path.relative_to(source).as_posix().encode('utf-8'))
                 sha.update(bytes.fromhex(digest(path)))
     return sha.hexdigest()
 

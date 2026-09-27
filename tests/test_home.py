@@ -52,7 +52,7 @@ class HomeSyncTests(unittest.TestCase):
         skill.parent.mkdir(parents=True)
         skill.write_text("user owned\n")
         report = sync(self.source, self.home, write=True)
-        self.assertIn(str(skill), report["conflicts"])
+        self.assertIn(str(skill.resolve()), report["conflicts"])
         self.assertFalse((self.home / "agent-env" / "README.md").exists())
 
     def test_optional_claude_skill_copy(self):

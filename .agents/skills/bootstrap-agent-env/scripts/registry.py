@@ -113,25 +113,26 @@ def deploy(source: Path, destination: Path, *, selected: set[str] | None = None,
             proposed[destination / entry["source"]] = (origin.read_bytes(), "registry")
     changes, conflicts = [], []
     for target, (data, _) in proposed.items():
-        safe_path(destination, str(target.relative_to(destination)))
+        relative = target.relative_to(destination).as_posix()
+        safe_path(destination, relative)
         before = hashlib.sha256(target.read_bytes()).hexdigest() if target.is_file() and not target.is_symlink() else None
         after = hashlib.sha256(data).hexdigest()
-        if target.exists() and before is None or before is not None and before != after and prior["files"].get(str(target.relative_to(destination)), {}).get("sha256") != before:
-            conflicts.append(str(target.relative_to(destination)))
+        if target.exists() and before is None or before is not None and before != after and prior["files"].get(relative, {}).get("sha256") != before:
+            conflicts.append(relative)
         elif before != after:
-            changes.append(str(target.relative_to(destination)))
+            changes.append(relative)
     report = {"changes": changes, "conflicts": conflicts, "selected": sorted({name for _, name in proposed.values() if name != "registry"}), "write": write}
     if not write or conflicts:
         return report
     for target, (data, _) in proposed.items():
-        if str(target.relative_to(destination)) in changes:
+        if target.relative_to(destination).as_posix() in changes:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
             if target.name.endswith(".sh"):
                 target.chmod(target.stat().st_mode | 0o111)
     previous_files = prior["files"]
     for target, (data, name) in proposed.items():
-        previous_files[str(target.relative_to(destination))] = {"sha256": hashlib.sha256(data).hexdigest(), "item": name}
+        previous_files[target.relative_to(destination).as_posix()] = {"sha256": hashlib.sha256(data).hexdigest(), "item": name}
     receipt.parent.mkdir(parents=True, exist_ok=True)
     receipt.write_text(json.dumps({"schema_version": 1, "files": previous_files}, indent=2) + "\n", encoding="utf-8")
     return report
