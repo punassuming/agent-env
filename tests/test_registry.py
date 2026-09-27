@@ -61,8 +61,10 @@ class AutoDiscoveryTests(unittest.TestCase):
             (source / ".agents/agents/claude/inspect.md").write_text("inspect\n")
             (source / ".agents/registry.json").write_text(json.dumps({
                 "schema_version": 1, "skills": {}, "agents": {}}))
+            (source / ".agents/agents/claude/inspect.yaml").write_text("config: test\n")
             target.mkdir()
             report = deploy(source, target, write=True)
-            self.assertEqual(len(report["changes"]), 4)
+            self.assertEqual(len(report["changes"]), 6)
             self.assertTrue((target / ".agents/skills/custom/SKILL.md").is_file())
             self.assertEqual((target / ".claude/agents/inspect.md").read_text(), "inspect\n")
+            self.assertEqual((target / ".claude/agents/inspect.yaml").read_text(), "config: test\n")

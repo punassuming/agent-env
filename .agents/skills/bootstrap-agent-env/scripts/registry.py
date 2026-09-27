@@ -49,13 +49,14 @@ def load(source: Path) -> dict:
                 continue
             base = {"claude": ".claude/agents", "copilot": ".github/agents"}.get(
                 provider.name, f".agents/agents/{provider.name}")
-            for item in sorted(provider.rglob("*.md")):
+            for item in sorted(p for p in provider.rglob("*") if p.is_file() and "__pycache__" not in p.parts):
                 relative = item.relative_to(source).as_posix()
                 if item.is_symlink():
                     raise ValueError(f"Symlink in agents registry: {item}")
                 if relative in registered:
                     continue
-                name = f"{provider.name}-{item.stem}"
+                item_name = item.relative_to(provider).as_posix().replace("/", "-").replace(".", "-")
+                name = f"{provider.name}-{item_name}"
                 target = f"{base}/{item.relative_to(provider).as_posix()}"
                 data["agents"].setdefault(name, {"source": relative, "version": "local",
                     "destinations": [target], "default": True})
