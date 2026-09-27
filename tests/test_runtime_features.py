@@ -181,11 +181,13 @@ class RuntimeFeatures(unittest.TestCase):
         detail = json.loads(lookup.stdout)['api']
         self.assertEqual(detail['description'], 'Check the API')
         self.assertTrue(detail['sandbox_needs']['network'])
-        self.assertEqual(detail['environment_overrides']['TASK_CACHE_DIR'], str(self.repo / '.local/cache/api'))
+        self.assertEqual(Path(detail['environment_overrides']['TASK_CACHE_DIR']).resolve(),
+                         (self.repo / '.local/cache/api').resolve())
         self.assertFalse((self.repo / '.local/cache/api').exists())
         checked = self.call('validate', '--all')
         self.assertEqual(checked.returncode, 0, checked.stderr)
-        self.assertIn(str(self.repo / '.local/cache/api'), checked.stdout)
+        self.assertIn((self.repo / '.local/cache/api').resolve(),
+                      [Path(line).resolve() for line in checked.stdout.splitlines() if line.endswith('/api')])
         self.assertIn('none', checked.stdout)
         self.assertTrue((self.repo / '.local/cache/api').is_dir())
         self.assertTrue((self.repo / '.local/tmp').is_dir())

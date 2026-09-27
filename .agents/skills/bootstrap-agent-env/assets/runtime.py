@@ -171,7 +171,7 @@ def record_run(base: Path, registry: dict, component: str, command: str, argv: l
     os.chmod(log, 0o600)
     event = {"schema_version": 1, "time_utc": datetime.now(timezone.utc).isoformat(),
              "component": component, "command": command, "argv": argv, "exit_code": code,
-             "log": str(log.relative_to(base)), "reason": reason}
+             "log": log.relative_to(base.resolve()).as_posix(), "reason": reason}
     save_json(folder / "last-run.json", event)
     if code:
         history = failure_history(folder)

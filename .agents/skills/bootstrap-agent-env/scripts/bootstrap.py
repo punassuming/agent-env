@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 
-VERSION = "0.10.1"
+VERSION = "0.10.2"
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 
 

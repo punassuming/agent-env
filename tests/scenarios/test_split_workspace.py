@@ -90,12 +90,12 @@ class SplitWorkspaceScenario(unittest.TestCase):
         result = self._run_coordinator("validate")
         self.assertEqual(result.returncode, 0, result.stderr)
         records = [json.loads(line) for line in self.trace.read_text().splitlines()]
-        self.assertEqual({Path(r["cwd"]) for r in records}, {self.go_repo, self.rust_repo})
-        self.assertEqual({Path(r["root"]) for r in records}, {self.go_repo, self.rust_repo})
+        self.assertEqual({Path(r["cwd"]).resolve() for r in records}, {self.go_repo.resolve(), self.rust_repo.resolve()})
+        self.assertEqual({Path(r["root"]).resolve() for r in records}, {self.go_repo.resolve(), self.rust_repo.resolve()})
         self.assertTrue(all(r["cache"] for r in records))
-        self.assertEqual({Path(r["cache"]) for r in records}, {
-            self.go_repo / ".local" / "cache" / "go-build",
-            self.rust_repo / ".local" / "cache" / "cargo-target",
+        self.assertEqual({Path(r["cache"]).resolve() for r in records}, {
+            (self.go_repo / ".local" / "cache" / "go-build").resolve(),
+            (self.rust_repo / ".local" / "cache" / "cargo-target").resolve(),
         })
 
     def test_malformed_manifest_reports_error(self):
@@ -108,7 +108,7 @@ class SplitWorkspaceScenario(unittest.TestCase):
         result = self._run_coordinator("test", "tool")
         self.assertEqual(result.returncode, 0, result.stderr)
         records = [json.loads(line) for line in self.trace.read_text().splitlines()]
-        self.assertEqual({Path(r["cwd"]) for r in records}, {self.rust_repo})
+        self.assertEqual({Path(r["cwd"]).resolve() for r in records}, {self.rust_repo.resolve()})
 
         # A missing runner in one project should be reported while the other
         # project still runs, with the coordinator returning failure.
@@ -118,7 +118,7 @@ class SplitWorkspaceScenario(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing runner", result.stderr)
         records = [json.loads(line) for line in self.trace.read_text().splitlines()]
-        self.assertEqual({Path(r["cwd"]) for r in records}, {self.rust_repo})
+        self.assertEqual({Path(r["cwd"]).resolve() for r in records}, {self.rust_repo.resolve()})
 
 
 if __name__ == "__main__":

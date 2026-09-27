@@ -47,7 +47,7 @@ class EvalScoringTests(unittest.TestCase):
             trace = root / 'trace.txt'
             trace.write_text('agent ran validation\n')
             check_log = root / 'validate.log'
-            check_log.write_text('ℹ tests 1\nℹ pass 1\nℹ fail 0\n')
+            check_log.write_text('ℹ tests 1\nℹ pass 1\nℹ fail 0\n', encoding='utf-8')
             checks = root / 'checks.json'
             checks.write_text(json.dumps([{'id':'validate','argv':['npm','test'],
                 'exit_code':0,'test_count':1,'log':str(check_log)}])+'\n')
@@ -56,7 +56,7 @@ class EvalScoringTests(unittest.TestCase):
             saved_log = run / 'observations/node-app/check-0.log'
             saved_log.write_text('tampered log\n')
             self.assertNotEqual(call('grade', '--run', run).returncode, 0)
-            saved_log.write_text(check_log.read_text())
+            saved_log.write_text(check_log.read_text(encoding='utf-8'), encoding='utf-8')
             self.assertEqual(call('grade', '--run', run).returncode, 0)
             report = {'schema_version': 1, 'reviewer': 'reviewer-1',
                 'cases': {name: {repo: review() if name == 'node-app' else None
