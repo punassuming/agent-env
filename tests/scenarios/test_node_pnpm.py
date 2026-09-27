@@ -95,7 +95,8 @@ class PnpmWorkspaceScenario(unittest.TestCase):
         calls = self._calls()
         self.assertEqual(sum(c["argv"] == ["install", "--frozen-lockfile"] for c in calls), 1)
         script_calls = [c for c in calls if len(c["argv"]) >= 2 and c["argv"][0] == "run"]
-        self.assertEqual({Path(c["cwd"]).relative_to(self.repo).as_posix() for c in script_calls},
+        self.assertEqual({Path(c["cwd"]).resolve().relative_to(self.repo.resolve()).as_posix()
+                          for c in script_calls},
                          {".", "packages/api", "packages/web"})
         self.assertEqual({tuple(c["argv"]) for c in script_calls},
                          {("run", "build"), ("run", "test")})
