@@ -12,6 +12,6 @@ class SkillContractTests(unittest.TestCase):
         self.assertTrue(text.startswith("---\nname: bootstrap-agent-env\n"))
         self.assertIn("description:", text.split("---", 2)[1])
         self.assertIn(f"Current version: **{VERSION}**", text)
-        for relative in ("references/recipes.md", "references/contract.md", "references/infrastructure.md", "references/sandbox.md", "references/evaluation.md", "references/evaluation-loop.md", "references/grading.md", "assets/evaluations/rubric.json", "scripts/evaluations/loop.py", "scripts/evaluations/grading.py"):
+        for relative in ("references/recipes.md", "references/contract.md", "references/runtime.md", "references/infrastructure.md", "references/sandbox.md", "references/evaluation.md", "references/evaluation-loop.md", "references/grading.md", "assets/evaluations/rubric.json", "scripts/evaluations/loop.py", "scripts/evaluations/grading.py"):
             self.assertTrue((canonical.parent / relative).is_file())
         self.assertIn("bootstrap-agent-env", (repo / ".claude" / "skills" / "bootstrap-agent-env" / "SKILL.md").read_text())

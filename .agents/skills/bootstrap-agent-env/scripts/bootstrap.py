@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 
-VERSION = "0.7.1"
+VERSION = "0.8.0"
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -159,9 +160,21 @@ def install(path: Path, found: dict) -> list[str]:
     src = SKILL_ROOT / "assets" / "runtime.py"
     dest = agent / "bin" / "runtime.py"
     dest.parent.mkdir(exist_ok=True)
+    receipt = agent / "runtime-deployment.json"
+    previous_runtime = json.loads(receipt.read_text(encoding="utf-8")) if receipt.exists() else {}
+    source_hash = hashlib.sha256(src.read_bytes()).hexdigest()
+    installed_hash = hashlib.sha256(dest.read_bytes()).hexdigest() if dest.exists() else None
     if not dest.exists():
         shutil.copyfile(src, dest)
         actions.append("Added .agents/bin/runtime.py")
+    elif installed_hash == previous_runtime.get("installed_sha256") and installed_hash != source_hash:
+        shutil.copyfile(src, dest)
+        actions.append("Updated unchanged .agents/bin/runtime.py")
+    elif installed_hash != source_hash:
+        actions.append("Review .agents/bin/runtime.py: local or untracked changes preserved")
+    if hashlib.sha256(dest.read_bytes()).hexdigest() == source_hash:
+        receipt.write_text(json.dumps({"schema_version": 1, "source_version": VERSION,
+                                       "installed_sha256": source_hash}, indent=2) + "\n", encoding="utf-8")
     workflow = agent / "skills" / "repo-agent-workflow" / "SKILL.md"
     workflow.parent.mkdir(parents=True, exist_ok=True)
     if not workflow.exists():
@@ -190,8 +203,9 @@ def install(path: Path, found: dict) -> list[str]:
         actions.append("Updated .gitignore")
     agents_md = path / "AGENTS.md"
     note = ("## Agent environment\n\nRun `scripts/agent-env.sh validate --all` on Unix or "
-            "`scripts/agent-env.ps1 validate --all` in PowerShell. Inspect `.agents/commands.json` "
-            "for components and update its commands when the project changes. "
+            "`scripts/agent-env.ps1 validate --all` in PowerShell. Use `scripts/agent-env.sh catalog --json` "
+            "for registered commands and VS Code tasks, and `scripts/agent-env.sh status` for the last failure. "
+            "Inspect `.agents/commands.json` for components and update its commands when the project changes. "
             f"Disposable caches and logs belong in `{local_root}/`. "
             "Deploy commands require explicit target-specific configuration.\n")
     if not agents_md.exists():

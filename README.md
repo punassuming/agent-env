@@ -38,6 +38,7 @@ Claude agent definitions install to `.claude/agents/`, Copilot definitions to `.
 | `AGENTS.md` | Short usage instructions; existing content is preserved. |
 | `.agents/bootstrap.json` | Applied and pending bootstrap versions; detection evidence and cache path. |
 | `.agents/registry-deployment.json` | Installed skills and agents with hashes for safe redeployment. |
+| `.agents/runtime-deployment.json` | Managed runner hash for safe future upgrades; local edits are preserved. |
 | `.agents/skills/bootstrap-agent-env/` | Complete versioned bootstrap skill with its code, references and assets. |
 | `.agents/commands.json` | Repo-owned commands per component. Extend it when the project changes. |
 | `.agents/bin/runtime.py` | Standalone standard-library command runner; checked into the target. |
@@ -67,6 +68,8 @@ From a bootstrapped repository:
 
 ```bash
 ./scripts/agent-env.sh help
+./scripts/agent-env.sh catalog --json
+./scripts/agent-env.sh status
 ./scripts/agent-env.sh doctor --json
 ./scripts/agent-env.sh test --component apps-api
 ./scripts/agent-env.sh validate --all
@@ -78,6 +81,8 @@ From a bootstrapped repository:
 ```
 
 Commands execute as argv arrays without shell interpolation. An unconfigured command, missing executable, or failed step returns nonzero. The initial `validate` composition covers discovered checks; update it when adding checks. `deploy` remains unconfigured until a target-specific procedure, artifact identity, verification, and rollback path are supplied. The command runner does not perform automatic deployments.
+
+Every executed step records the latest run, retained last failure and bounded output log under the ignored local root; `status` gives a user or agent a stable path to the last failure. The [runner contract](.agents/skills/bootstrap-agent-env/references/runtime.md) documents targeted file/test commands with declared parameters, a `catalog` that reads `.vscode/tasks.json` without executing shell tasks, and opt-in local `--changed` checks based on explicitly declared input metadata. Metadata matching is advisory: the default and CI validation paths run the actual checks.
 
 ## Projects and platforms
 

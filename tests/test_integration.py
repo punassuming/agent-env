@@ -41,6 +41,25 @@ class BootstrapIntegrationTests(unittest.TestCase):
         self.assertEqual(load_registry(self.repo)["components"]["apps-api"]["commands"]["test"][0]["argv"][1], "-c")
         self.assertIn("/.local/", (self.repo / ".gitignore").read_text())
 
+    def test_runtime_upgrade_preserves_edits_and_uses_managed_receipt(self):
+        install(self.repo, {})
+        runner = self.repo / '.agents/bin/runtime.py'
+        receipt = self.repo / '.agents/runtime-deployment.json'
+        original = runner.read_bytes()
+        self.assertEqual(json.loads(receipt.read_text())['source_version'], VERSION)
+        # Simulate an older unchanged managed runner and its receipt.
+        runner.write_text('# old managed runner\n')
+        import hashlib
+        receipt.write_text(json.dumps({'schema_version': 1, 'source_version': 'old',
+                                       'installed_sha256': hashlib.sha256(runner.read_bytes()).hexdigest()}))
+        actions = install(self.repo, {})
+        self.assertIn('Updated unchanged .agents/bin/runtime.py', actions)
+        self.assertEqual(runner.read_bytes(), original)
+        runner.write_text('# local adaptation\n')
+        actions = install(self.repo, {})
+        self.assertIn('Review .agents/bin/runtime.py: local or untracked changes preserved', actions)
+        self.assertEqual(runner.read_text(), '# local adaptation\n')
+
     def test_failures_and_finalize(self):
         (self.repo / "go.mod").write_text("module example.com/test\n\ngo 1.22\n")
         install(self.repo, discover(self.repo))
