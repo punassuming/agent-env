@@ -49,9 +49,9 @@ This is an excerpt, not a full commands.json; preserve its schema, tools, other 
 
 ## Default local fingerprints
 
-Local validation commands (`validate`, `test`, `lint`, `format-check`, `typecheck`, `build`, `docs-check`) skip **per component and command** when their declared inputs match a previous successful check. Freshly detected components receive a broad recursive input scope for their component path, with common cache and output directories excluded. Inspect and extend those globs for shared libraries, root configuration, lockfiles, generated inputs and dependencies; incomplete inputs can produce false skips. An existing component without `change_detection.COMMAND.inputs` always runs. A first check runs and persists a fingerprint only after success. Failure invalidates it.
+Local validation commands (`validate`, `test`, `lint`, `format-check`, `typecheck`, `build`, `docs-check`) skip **per component and command** when their declared inputs match a previous successful check. Freshly detected components receive a repository-wide scope: in a Git repository the runner collects tracked and non-ignored untracked files, including shared libraries and lockfiles. Git-ignored inputs need explicit inclusion or a forced check. Without Git, it falls back to walking the repository while skipping `.git` and the ignored local state. Only narrow a component scope after identifying all shared inputs and dependencies; an incomplete scope can produce a false skip. An existing component without `change_detection.COMMAND.inputs` always runs. A first check runs and persists a fingerprint only after success. Failure invalidates it.
 
-The fingerprint stores each input path, size, nanosecond mtime and ctime; it also stores a SHA-256 of this sorted metadata plus the registry and runner hashes. The scan prunes `.git`, the configured local cache and declared output trees for ordinary recursive paths. It includes untracked files in the declared paths. This is a fast metadata fingerprint: edits that preserve all metadata can escape detection. Run `--force` to check the selected component, or `--all --force-component NAME` to override a particular component. CI and GitHub Actions always execute checks, regardless of fingerprints or flags. Parameterized commands always run. Bootstrap, debug, deploy and other stateful commands never skip automatically.
+The fingerprint stores each input path, size, nanosecond mtime and ctime, and a SHA-256 of the sorted metadata; the registry and runner are hashed separately. File contents are not read. Git supplies the default path list without traversing ignored caches. A successful check is cached only when the before and after input fingerprints match; if an input changes during validation, the result cannot justify a future skip. This metadata fingerprint can miss edits that preserve all metadata. Run `--force` to check the selected component, or `--all --force-component NAME` to override a particular component. CI and GitHub Actions always execute checks, regardless of fingerprints or flags. Parameterized commands always run. Bootstrap, debug, deploy and other stateful commands never skip automatically.
 
 ```json
 {
@@ -74,7 +74,7 @@ scripts/agent-env.sh validate --all --force-component api
 scripts/agent-env.sh changes --component api --for-command validate --json
 ```
 
-`changes` reports changed paths, the metadata hash, last successful check and newest input age. The old `--changed` flag remains accepted as an alias for the default behavior. Fingerprints are advisory: changes to external services, tools or dependencies outside the declared inputs need a forced run or an expanded input scope.
+`changes` reports changed paths, the metadata hash, last successful check and newest input age. The example narrowed scope requires project-specific review; the generated default is `"**/*"` for each broad component. The old `--changed` flag remains accepted as an alias for the default behavior. Fingerprints are advisory: changes to external services, tools or dependencies outside the declared inputs need a forced run or an expanded input scope.
 
 ## VS Code task ingestion
 

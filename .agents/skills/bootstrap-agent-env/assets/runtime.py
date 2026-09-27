@@ -206,9 +206,24 @@ def input_snapshot(base: Path, registry: dict, component: dict, command: str) ->
 
     files = set()
     local_root = (base / registry.get("local_root", ".local")).resolve()
+    # For the broad default scope, Git supplies tracked and non-ignored untracked
+    # paths without traversing caches or reading file contents. In a non-Git
+    # workspace the existing filesystem scan below remains the fallback.
+    git_listing_used = False
+    if spec["inputs"] == ["**/*"] and (base / ".git").exists():
+        try:
+            listing = subprocess.run(["git", "-C", str(base), "ls-files", "--cached", "--others",
+                                      "--exclude-standard", "-z"], capture_output=True, check=False)
+            if listing.returncode == 0:
+                files.update(base / os.fsdecode(name) for name in listing.stdout.split(b"\0") if name)
+                git_listing_used = True
+        except OSError:
+            pass
     for pattern in spec["inputs"]:
         if not isinstance(pattern, str) or not pattern or Path(pattern).is_absolute() or ".." in Path(pattern).parts:
             raise ValueError("change_detection inputs must be relative repository paths")
+        if git_listing_used:
+            continue
         # Recursive directory inputs are the standard default; prune ignored build/cache
         # trees before descending instead of globbing through node_modules or .git.
         directory_name = "." if pattern == "**/*" else pattern[:-5] if pattern.endswith("/**/*") else None
@@ -359,8 +374,12 @@ def run_command(base: Path, registry: dict, command: str, name: str | None, all_
         else:
             if incremental and not supplied and snapshot is not None:
                 after = input_snapshot(base, registry, component, command)
-                change_state(base, registry, component_name, command, snapshot if after is None else after,
-                             update=after is not None, invalidate=after is None)
+                if after == snapshot:
+                    change_state(base, registry, component_name, command, snapshot, update=True)
+                else:
+                    change_state(base, registry, component_name, command, snapshot, invalidate=True)
+                    print(f"INPUTS CHANGED DURING {component_name}:{command}; rerun before using a cached result",
+                          file=sys.stderr)
             if command == "bootstrap":
                 bootstrapped.add(component_name if work_component is component else component["bootstrap_from"])
     return status

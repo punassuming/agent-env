@@ -116,14 +116,18 @@ class RuntimeFeatures(unittest.TestCase):
         self.assertIn('retained diagnostic', self.call('failures').stdout)
         self.assertTrue((self.repo / json.loads(self.call('status').stdout)['last_failure']['log']).exists())
 
-    def test_discovered_component_fingerprints_default_and_prune_outputs(self):
+    def test_discovered_component_fingerprints_cover_shared_git_inputs(self):
+        subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
         (self.repo / 'apps/api').mkdir(parents=True)
         (self.repo / 'apps/api/go.mod').write_text('module example.test/api\n')
         (self.repo / 'apps/api/main.go').write_text('package main\n')
+        (self.repo / 'uv.lock').write_text('version = 1\n')
         install(self.repo, discover(self.repo))
+        with (self.repo / '.gitignore').open('a') as ignore:
+            ignore.write('**/node_modules/\n')
         data = json.loads(self.config.read_text())
         component = data['components']['apps-api']
-        self.assertEqual(component['change_detection']['validate']['inputs'], ['apps/api/**/*'])
+        self.assertEqual(component['change_detection']['validate']['inputs'], ['**/*'])
         component['commands']['validate'] = [{'argv': [sys.executable, '-c',
             'from pathlib import Path; p=Path("../../.local/count"); p.parent.mkdir(exist_ok=True); p.write_text(str(int(p.read_text())+1 if p.exists() else 1))']}]
         self.config.write_text(json.dumps(data))
@@ -132,9 +136,30 @@ class RuntimeFeatures(unittest.TestCase):
         (self.repo / 'apps/api/node_modules/huge').mkdir(parents=True)
         (self.repo / 'apps/api/node_modules/huge/file').write_text('generated')
         self.assertIn('SKIPPED UNCHANGED', self.call('validate').stdout)
-        (self.repo / 'apps/api/main.go').write_text('package main\n// changed\n')
+        (self.repo / 'uv.lock').write_text('version = 2\n')
         self.assertEqual(self.call('validate').returncode, 0)
         self.assertEqual((self.repo / '.local/count').read_text(), '2')
+        subprocess.run(['git', '-C', str(self.repo), 'add', '-f', 'apps/api/node_modules/huge/file'], check=True)
+        self.assertEqual(self.call('validate').returncode, 0)
+        self.assertEqual((self.repo / '.local/count').read_text(), '3')
+        (self.repo / 'apps/api/main.go').write_text('package main\n// changed\n')
+        self.assertEqual(self.call('validate').returncode, 0)
+        self.assertEqual((self.repo / '.local/count').read_text(), '4')
+
+    def test_changed_inputs_during_validation_cannot_be_cached(self):
+        (self.repo / 'src').mkdir()
+        (self.repo / 'src/input.txt').write_text('original')
+        self.configure({'app': {'path': '.', 'tools': ['python'],
+            'change_detection': {'validate': {'inputs': ['src/**/*']}},
+            'commands': {'validate': [{'argv': [sys.executable, '-c',
+                'from pathlib import Path; p=Path("src/input.txt"); p.write_text(p.read_text()+"x")']}]}}})
+        first = self.call('validate')
+        self.assertEqual(first.returncode, 0)
+        self.assertIn('INPUTS CHANGED DURING', first.stderr)
+        self.assertFalse(json.loads(self.call('changes', '--json').stdout)['app']['unchanged_since_success'])
+        second = self.call('validate')
+        self.assertEqual(second.returncode, 0)
+        self.assertNotIn('SKIPPED UNCHANGED', second.stdout)
 
     def test_declared_file_parameters_are_scoped_and_not_interpolated(self):
         (self.repo / 'src').mkdir()

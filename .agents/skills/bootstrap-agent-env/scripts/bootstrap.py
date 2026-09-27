@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 
-VERSION = "0.9.0"
+VERSION = "0.9.1"
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -108,10 +108,7 @@ def discover(path: Path) -> dict:
             commands["validate"].append(gradle_check)
         found["root" if relative == "." else relative.replace("/", "-")] = {
             "path": relative, "evidence": evidence, "tools": sorted(set(tools)), "commands": commands,
-            "change_detection": {name: {"inputs": ["**/*" if relative == "." else relative + "/**/*"],
-                                       "exclude": ["**/node_modules/**", "**/.venv/**", "**/venv/**",
-                                                   "**/target/**", "**/build/**", "**/dist/**",
-                                                   "**/__pycache__/**", "**/.gradle/**", "**/.next/**"]}
+            "change_detection": {name: {"inputs": ["**/*"]}
                                  for name in checks + ["validate"] if commands.get(name)},
             "unconfigured": [name for name in ("test", "debug", "deploy-plan", "deploy", "verify-deploy") if not commands.get(name)]
         }
