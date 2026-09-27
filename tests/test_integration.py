@@ -102,6 +102,22 @@ class BootstrapIntegrationTests(unittest.TestCase):
                                      capture_output=True, text=True, check=False)
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("root", json.loads(help_result.stdout)["components"])
+        # Installed skill remains runnable without the source package on PYTHONPATH.
+        standalone = self.repo / ".agents/skills/bootstrap-agent-env/scripts/bootstrap.py"
+        isolated_env = os.environ.copy()
+        isolated_env.pop("PYTHONPATH", None)
+        assessed = subprocess.run([sys.executable, str(standalone), "assess", str(self.repo)],
+                                  cwd=self.repo, env=isolated_env, capture_output=True, text=True)
+        self.assertEqual(assessed.returncode, 0, assessed.stderr)
+        self.assertIn("root", json.loads(assessed.stdout)["components"])
+        installed_registry = self.repo / ".agents/skills/bootstrap-agent-env/scripts/registry.py"
+        extra = self.repo / ".agents/skills/new-tool/SKILL.md"
+        extra.parent.mkdir(parents=True)
+        extra.write_text("---\nname: new-tool\ndescription: Local addition\n---\n")
+        registry_result = subprocess.run([sys.executable, str(installed_registry), "install", str(self.repo)],
+                                         cwd=self.repo, env=isolated_env, capture_output=True, text=True)
+        self.assertEqual(registry_result.returncode, 0, registry_result.stderr)
+        self.assertIn("new-tool", json.loads(registry_result.stdout)["selected"])
         if os.name == "nt" and shutil.which("pwsh"):
             wrapper = ["pwsh", "-NoProfile", "-File", str(self.repo / "scripts" / "agent-env.ps1")]
         elif os.name != "nt":

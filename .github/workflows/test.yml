@@ -14,4 +14,4 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - if: runner.os != 'Windows'
         shell: bash
-        run: bash -n scripts/agent-env.sh examples/env.sh
+        run: bash -n .agents/skills/bootstrap-agent-env/assets/scripts/agent-env.sh .agents/skills/bootstrap-agent-env/assets/examples/env.sh

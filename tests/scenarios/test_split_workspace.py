@@ -15,7 +15,7 @@ from agent_env.bootstrap import discover, finalize, install
 
 
 SOURCE = Path(__file__).resolve().parents[2]
-COORDINATOR = SOURCE / "scripts" / "workspace.py"
+COORDINATOR = SOURCE / ".agents" / "skills" / "bootstrap-agent-env" / "assets" / "scripts" / "workspace.py"
 
 
 class SplitWorkspaceScenario(unittest.TestCase):

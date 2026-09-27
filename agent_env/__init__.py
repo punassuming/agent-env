@@ -1,3 +1,3 @@
-"""Agent-guided repository bootstrap package."""
+"""Agent registry and bootstrap CLI."""
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"

@@ -1,10 +1,10 @@
 # agent-env
 
-Agent-guided bootstrap for existing code repositories. It discovers likely toolchains, installs a checked-in command surface, and gives a coding agent a versioned workflow for adapting that surface to the actual project. The installed repository owns its configuration; this source repository is a guide, not a runtime service.
+Agent-guided bootstrap for existing code repositories. It discovers likely toolchains, installs a checked-in command surface, and gives a coding agent a versioned workflow for adapting that surface to the actual project. The installed repository owns its configuration. This repository is a versioned registry of installable skills and agent definitions; the environment bootstrap installs the default entries and then a coding agent adapts them to the project.
 
 ## Start with an agent
 
-Give a coding agent this repository and the target path. Ask it to use [the bootstrap skill](.agents/skills/bootstrap-agent-env/SKILL.md) to **assess**, **install**, or **redeploy**. The agent must review discovered candidates, add project-specific commands and CI, execute checks, and finish the version record. The installer alone cannot infer reliable deployment targets or all monorepo dependencies.
+Give a coding agent this repository and the target path. Ask it to use [the bootstrap skill](.agents/skills/bootstrap-agent-env/SKILL.md) to **assess**, **install**, or **redeploy**. The agent must review discovered candidates, add project-specific commands and CI, execute checks, and finish the version record. The installer alone cannot infer reliable deployment targets or all monorepo dependencies. The agent writes a checked-in `.agents/assessment.md` following [the assessment guide](.agents/skills/bootstrap-agent-env/references/assessment.md), recording tool selection, capability coverage, validation results, gaps, and opportunities.
 
 For direct use from a clone with Python 3.11 or newer:
 
@@ -17,15 +17,32 @@ python -m agent_env finalize /path/to/project
 
 PowerShell uses the same `python -m agent_env ...` command; substitute `py -3` if that is your Python launcher. `assess` is read-only. `install` is conservative and repeatable: it adds new detected components, preserves existing command definitions, creates a `pending_version`, and leaves `applied_version` unchanged. `finalize` runs `doctor` and `validate --all` before recording `applied_version`. **Inspect command argv before finalizing**: detection is a proposal, and installed commands can execute project scripts.
 
+## Registry architecture
+
+[`.agents/registry.json`](.agents/registry.json) names each skill or agent definition, its version, source file or directory, target destinations, and whether it installs by default. Canonical bootstrap implementation, cross-platform wrappers, workflow skill, examples, and runtime live inside [the bootstrap skill](.agents/skills/bootstrap-agent-env/SKILL.md): `scripts/` holds code, `references/` holds guidance, and `assets/` holds files copied to targets. The Python `agent_env` package is a thin dispatcher and registry manager; a bootstrapped repository keeps a complete copy of the skill, registry manifest and canonical agent sources. It can reassess itself with `.agents/skills/bootstrap-agent-env/scripts/bootstrap.py` and install local additions with `.agents/skills/bootstrap-agent-env/scripts/registry.py`.
+
+```bash
+python -m agent_env registry plan /path/to/project
+python -m agent_env registry install /path/to/project
+python -m agent_env registry plan /path/to/project --select bootstrap-agent-env
+```
+
+Repeat `--select` for multiple entries; without it, all defaults install. Any skill folder with a `SKILL.md` under `.agents/skills/` and any Markdown definition under `.agents/agents/<provider>/` installs by default without a manifest change. Add explicit entries to the manifest when versions, alternate source paths, destinations, or selection behavior need configuration. A deployment receipt at `.agents/registry-deployment.json` records file hashes and item names. Reinstall updates unchanged managed files, reports local edits as conflicts, and never deletes files. Registry deployment lays down reusable instructions; `install` also discovers components and scaffolds runnable commands. Adapt recipes, agents, CI and the component map after inspecting the project.
+
+Claude agent definitions install to `.claude/agents/`, Copilot definitions to `.github/agents/`, and canonical skills to `.agents/skills/` with Claude discovery copies in `.claude/skills/`. Provider file formats remain separate sources in the registry. The names and prompt text are examples to customize per project.
+
 ## What a target receives
 
 | Path | Purpose |
 | --- | --- |
 | `AGENTS.md` | Short usage instructions; existing content is preserved. |
 | `.agents/bootstrap.json` | Applied and pending bootstrap versions; detection evidence and cache path. |
+| `.agents/registry-deployment.json` | Installed skills and agents with hashes for safe redeployment. |
+| `.agents/skills/bootstrap-agent-env/` | Complete versioned bootstrap skill with its code, references and assets. |
 | `.agents/commands.json` | Repo-owned commands per component. Extend it when the project changes. |
 | `.agents/bin/runtime.py` | Standalone standard-library command runner; checked into the target. |
 | `.agents/skills/repo-agent-workflow/SKILL.md` | Agent guidance for validation, debugging, and deployment preparation. |
+| `.claude/agents/repo-maintainer.md`, `.github/agents/repo-maintainer.agent.md` | Example agent definitions for Claude and Copilot. |
 | `.claude/skills/repo-agent-workflow/SKILL.md` | Minimal Claude discovery wrapper for the canonical skill. |
 | `scripts/agent-env.sh`, `scripts/agent-env.ps1` | Bash and PowerShell entry points to the same runner. |
 | `.local/` | Ignored, disposable tool cache and run space. If tracked `.local` content exists, installer selects `.agent-local/` instead. |
@@ -34,7 +51,7 @@ The target runner needs Python 3.11+ at execution time. For projects without Pyt
 
 ## Sync to your home directory
 
-From a local checkout, preview then sync its tracked files into `~/.agents/agent-env` and expose the skill at `~/.agents/skills/bootstrap-agent-env`:
+From a local checkout, preview then sync its tracked files into `~/.agents/agent-env` and expose default registered skills at `~/.agents/skills/`:
 
 ```bash
 python -m agent_env home plan
@@ -42,9 +59,9 @@ python -m agent_env home sync
 python -m agent_env home status
 ```
 
-Use `--claude` with `plan` and `sync` to also copy the canonical skill into `~/.claude/skills/bootstrap-agent-env`. PowerShell uses the same commands with `python` or `py -3`. `--home PATH` selects another `.agents` directory. Home sync is local and does not fetch changes from GitHub; update the source checkout first, then sync. The copied `~/.agents/agent-env` is a snapshot, not a Git checkout. You may instead clone the repository directly into `~/.agents/agent-env`, update it with Git, and run home sync there; the command recognizes that location and updates the exposed skill copies.
+Use `--claude` with `plan` and `sync` to also install Claude skill copies and registered Claude agent definitions into `~/.claude/`. PowerShell uses the same commands with `python` or `py -3`. `--home PATH` selects another `.agents` directory. Home sync is local and does not fetch changes from GitHub; update the source checkout first, then sync. The copied `~/.agents/agent-env` is a snapshot, not a Git checkout. You may instead clone the repository directly into `~/.agents/agent-env`, update it with Git, and run home sync there; the command recognizes that location and updates the exposed skill copies.
 
-The command stores a hash record in `~/.agents/agent-env-sync.json`. It can update previously synced files but aborts a sync if any destination has a local edit or an unrelated file at the same path. It never deletes destination files that are absent upstream; inspect stale files during an upgrade. It does not modify other skills in `~/.agents/skills`.
+The command stores a hash record in `~/.agents/agent-env-sync.json`. It can update previously synced files but aborts a sync if any destination has a local edit or an unrelated file at the same path. It never deletes destination files that are absent upstream; inspect stale files during an upgrade. It does not modify skills outside the registered destinations.
 
 From a bootstrapped repository:
 
@@ -66,21 +83,21 @@ Commands execute as argv arrays without shell interpolation. An unconfigured com
 
 The catalog currently proposes Rust/Cargo, Go, Python/uv, Node/npm or pnpm, and Gradle/Android mappings. It discovers a root project and immediate children of `apps/`, `packages/`, `services/`, and `lib/`; it does not guess arbitrary directory graphs. [Candidate recipes](.agents/skills/bootstrap-agent-env/references/recipes.md) explain what to inspect. Agent-maintained `.agents/commands.json` may contain any additional tool and component. One target is one Git repository or working tree; each component has its own working directory and registered commands.
 
-For separate Git repositories in a developer space, each repository remains independently bootstrapped. Use the optional [workspace manifest](examples/workspace/workspace.json) and `scripts/workspace.py` to coordinate explicit paths:
+For separate Git repositories in a developer space, each repository remains independently bootstrapped. Use the optional [workspace manifest](.agents/skills/bootstrap-agent-env/assets/examples/workspace/workspace.json) and the [workspace coordinator](.agents/skills/bootstrap-agent-env/assets/scripts/workspace.py) to coordinate explicit paths:
 
 ```bash
-python scripts/workspace.py validate --manifest examples/workspace/workspace.json --project api
+python .agents/skills/bootstrap-agent-env/assets/scripts/workspace.py validate --manifest workspace.json --project api
 ```
 
 The workspace manifest is an example. Put the coordinator and manifest in the developer space you actually control; do not write into sibling repos without inspecting them. `--all` runs all components within each selected repo. A dependency graph and `--changed` selection are not implemented: the coding agent should add them when their semantics are known, and otherwise use complete validation. Claiming generic affected-component selection across unrelated Git histories would be incorrect.
 
-See [GitHub Actions](examples/ci.github-actions.yml) and [GitLab CI](examples/ci.gitlab.yml) templates. The GitHub template demonstrates Linux, macOS, and Windows Bash/PowerShell entry points. Both templates require target-specific tool provisioning before use; copying them verbatim into a Rust or Android repo will fail. [Bash](examples/env.sh) and [PowerShell](examples/env.ps1) examples show selected cache overrides; the Python runner applies uv, Go, Cargo target, and npm overrides with absolute paths. pnpm's store needs separate project-specific configuration; npm's cache variable is not a pnpm store setting. Do not cache secrets. Gradle user home includes configuration as well as caches, so it is not redirected automatically.
+See [GitHub Actions](.agents/skills/bootstrap-agent-env/assets/examples/ci.github-actions.yml) and [GitLab CI](.agents/skills/bootstrap-agent-env/assets/examples/ci.gitlab.yml) templates. The GitHub template demonstrates Linux, macOS, and Windows Bash/PowerShell entry points. Both templates require target-specific tool provisioning before use; copying them verbatim into a Rust or Android repo will fail. [Bash](.agents/skills/bootstrap-agent-env/assets/examples/env.sh) and [PowerShell](.agents/skills/bootstrap-agent-env/assets/examples/env.ps1) examples show selected cache overrides; the Python runner applies uv, Go, Cargo target, and npm overrides with absolute paths. pnpm's store needs separate project-specific configuration; npm's cache variable is not a pnpm store setting. Do not cache secrets. Gradle user home includes configuration as well as caches, so it is not redirected automatically.
 
 ## Redeployment and local extensions
 
 On a later run, the skill reads `.agents/bootstrap.json`, reassesses the current repository, compares `applied_version`, and reconciles new recipes with the project's edited registry, runner, skills, and CI. It should fix obsolete commands and add capabilities supported by evidence. `install` does not overwrite an existing runner or commands. An agent deliberately updates these files, validates them, and finalizes the new version. `pending_version` makes an incomplete attempt visible.
 
-Semantic versioning applies to the skill package; schema versions apply independently to the target's JSON formats. Unknown newer schemas stop installation rather than risk overwriting local work. The target may add domain-specific skills in `.agents/skills`. Codex and Copilot can discover that directory; [the Claude adapter](.claude/skills/bootstrap-agent-env/SKILL.md) demonstrates a minimal wrapper for the source skill. For a target, add Claude wrappers where its discovery requires them.
+Semantic versioning applies to the skill package; schema versions apply independently to the target's JSON formats. Unknown newer schemas stop installation rather than risk overwriting local work. The target may add domain-specific skills in `.agents/skills`; register reusable upstream skills in `.agents/registry.json`. Codex and Copilot can discover that directory; [the Claude adapter](.claude/skills/bootstrap-agent-env/SKILL.md) demonstrates a minimal wrapper for the source skill. For a target, add Claude wrappers where its discovery requires them.
 
 ## Comparable GitHub projects
 
@@ -100,6 +117,6 @@ Our specific focus is a **repo-owned, versioned validation and lifecycle contrac
 python -m unittest discover -s tests -v
 ```
 
-The integration tests create disposable Git repos, test monorepo discovery, preserve local edits on reinstall, check failure propagation and finalization, and protect tracked `.local` files. They do not execute deployment or require Rust, Go, Android, or Node toolchains.
+The registry tests deploy a synthetic new skill and agent definition, verify managed upgrades and local-edit conflicts. The integration tests create disposable Git repos, test monorepo discovery, preserve local edits on reinstall, check failure propagation and finalization, and protect tracked `.local` files. They do not execute deployment or require Rust, Go, Android, or Node toolchains.
 
 The CI matrix runs on Linux, macOS, and Windows. Four independently authored [scenario fixtures](tests/scenarios) exercise a Python/uv workspace, a pnpm workspace, a flavored Android/Gradle project, and separate Go/Rust repositories coordinated by a workspace manifest. They use fake executables to check command routing without downloading toolchains. POSIX fake-tool scenarios skip Windows; core command and home-sync tests run there. The Android scenario confirms that variant tasks need an agent's project-specific selection; the bootstrap does not guess flavors or release signing.

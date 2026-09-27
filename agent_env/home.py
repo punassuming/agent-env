@@ -12,6 +12,7 @@ import sys
 import tempfile
 
 from . import VERSION
+from .registry import files, load
 
 
 def digest(data: bytes) -> str:
@@ -37,16 +38,19 @@ def tracked_files(source: Path) -> list[Path]:
 def proposals(source: Path, home: Path, claude: bool = False) -> dict[Path, bytes]:
     copied = {home / "agent-env" / relative: (source / relative).read_bytes()
               for relative in tracked_files(source) if (source / relative).is_file()}
-    skill = Path(".agents/skills/bootstrap-agent-env")
-    skill_files = [p for p in tracked_files(source) if p.parts[:3] == skill.parts]
-    if not skill_files:
-        raise ValueError("Bootstrap skill missing from source checkout")
-    for relative in skill_files:
-        tail = relative.relative_to(skill)
-        data = (source / relative).read_bytes()
-        copied[home / "skills" / "bootstrap-agent-env" / tail] = data
-        if claude:
-            copied[home.parent / ".claude" / "skills" / "bootstrap-agent-env" / tail] = data
+    registry = load(source)
+    # Home destinations expose canonical skills in ~/.agents/skills and Claude
+    # adapters in ~/.claude; repository-specific Copilot definitions stay in repos.
+    selected = {name for name, entry in registry["skills"].items() if entry.get("default")}
+    if claude:
+        selected.update(name for name, entry in registry["agents"].items()
+                        if entry.get("default") and any(p.startswith(".claude/") for p in entry["destinations"]))
+    for target, (data, _) in files(source, home.parent, registry, selected=selected).items():
+        relative = target.relative_to(home.parent)
+        if relative.parts[:2] == (".agents", "skills"):
+            copied[home / Path(*relative.parts[1:])] = data
+        elif claude and relative.parts[0] == ".claude":
+            copied[home.parent / relative] = data
     return copied
 
 

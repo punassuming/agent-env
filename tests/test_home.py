@@ -19,12 +19,17 @@ class HomeSyncTests(unittest.TestCase):
         skill.mkdir(parents=True)
         (skill / "SKILL.md").write_text("---\nname: bootstrap-agent-env\n---\n")
         (self.source / "README.md").write_text("initial\n")
+        (self.source / ".agents" / "registry.json").write_text(json.dumps({
+            "schema_version": 1, "skills": {"bootstrap-agent-env": {
+                "version": VERSION, "source": ".agents/skills/bootstrap-agent-env",
+                "destinations": [".agents/skills/bootstrap-agent-env", ".claude/skills/bootstrap-agent-env"],
+                "default": True}}, "agents": {}}))
         subprocess.run(["git", "init", "-q", str(self.source)], check=True)
         subprocess.run(["git", "-C", str(self.source), "add", "."], check=True)
 
     def test_plan_sync_repeat_update_and_conflict(self):
         plan = sync(self.source, self.home)
-        self.assertEqual(len(plan["changes"]), 3)
+        self.assertEqual(len(plan["changes"]), 4)
         self.assertFalse(self.home.exists())
         self.assertFalse(sync(self.source, self.home, write=True)["conflicts"])
         self.assertEqual((self.home / "skills" / "bootstrap-agent-env" / "SKILL.md").read_text(),
