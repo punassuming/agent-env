@@ -78,7 +78,8 @@ class AndroidGradleScenario(unittest.TestCase):
             ":app:testDemoDebugUnitTest", ":app:assembleDemoDebug",
             ":app:testDemoDebugUnitTest :app:assembleDemoDebug"])
 
-        failed = subprocess.run([sys.executable, str(runner), "validate", "--all"], cwd=self.repo,
+        # An external environment flag is not a registered input, so explicitly rerun.
+        failed = subprocess.run([sys.executable, str(runner), "validate", "--all", "--force"], cwd=self.repo,
                                 env=dict(env, GRADLE_FAIL=":app:assembleDemoDebug"),
                                 capture_output=True, text=True)
         self.assertEqual(failed.returncode, 17, failed.stderr)

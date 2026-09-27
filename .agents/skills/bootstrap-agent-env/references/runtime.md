@@ -4,14 +4,16 @@ The installed runner is a repository-owned command adapter, not a replacement fo
 
 ## Failure handoff
 
-Every executed step writes an ignored log under `<local_root>/agent-env/logs/` and updates `last-run.json`. A failed step, missing executable, missing directory or unconfigured command updates `last-failure.json`. `status` reads both receipts, including the latest failing argv, exit code, UTC time, log path and whether a later successful run of **that component and command** followed it. The last failure is retained for diagnosis; an unrelated passing check does not erase it. Logs retain the last 512 KiB of step output and only the 30 newest files are kept. A local log can contain sensitive command output; keep the local root ignored, restrict access, and do not commit or upload it without review. This is a handoff artifact, not an issue tracker or an assertion that the command was rerun in CI.
+Every executed step records `last-run.json` in the ignored `<local_root>/agent-env/`. Failed steps retain output under `failures/`, with up to 30 failure records in `failure-history.json`; successful steps use rotating `logs/`. `last-failure.json` remains available after later successes, and `failures` prints the actual saved output. `status` reports the latest run and failure metadata, including whether that component and command later passed. A failure with no output reports its reason. Each process log retains the last 512 KiB of output; the runner prints the full stream as it runs. These logs can contain secrets: keep the local root ignored and review before sharing them.
 
 ```bash
+scripts/agent-env.sh failures
+scripts/agent-env.sh failures --component api --limit 5
+scripts/agent-env.sh failures --json
 scripts/agent-env.sh status
-scripts/agent-env.sh catalog --json
 ```
 
-When debugging, read `status` and the referenced log before rerunning a failed step; verify the file still exists because logs rotate. The assessment or tracked issue remains the place to record a persistent product defect or required fix. `status` is not a substitute for recorded test counts, CI logs or an agent evaluation trace.
+The tracked assessment or issue record holds persistent defects. A local receipt is a diagnostic handoff, not evidence that CI executed the command.
 
 ## Parameterized project commands
 
@@ -45,9 +47,11 @@ scripts/agent-env.sh test-keyword --component api --param keyword=health
 
 This is an excerpt, not a full commands.json; preserve its schema, tools, other commands and existing project runner. Adapt the pytest executable to the project's declared installer (`uv run --locked`, a venv, etc.). A declared parameter does not install pytest or prove a test was collected. Use a checked-in script for complex argument construction; never interpolate user input into a shell string. Parameters cannot be combined with `--all` and do not populate an unchanged-input baseline.
 
-## Local metadata change checks
+## Default local fingerprints
 
-`--changed` is opt-in and has no effect unless that component explicitly lists input globs for that command. Paths are relative to the repository root, can include nested components and config files, and must account for cross-component dependencies. Globs include untracked files. A first run executes normally; successful runs store file paths, sizes, nanosecond modification/change times, registry hash, runner hash and a validation time under `<local_root>/agent-env/change-state.json`. `changes --component NAME --for-command validate --json` reports changed paths, the last success, newest input time and its age. A failure invalidates the baseline. CI and GitHub Actions ignore `--changed` and execute checks.
+Local validation commands (`validate`, `test`, `lint`, `format-check`, `typecheck`, `build`, `docs-check`) skip **per component and command** when their declared inputs match a previous successful check. Freshly detected components receive a broad recursive input scope for their component path, with common cache and output directories excluded. Inspect and extend those globs for shared libraries, root configuration, lockfiles, generated inputs and dependencies; incomplete inputs can produce false skips. An existing component without `change_detection.COMMAND.inputs` always runs. A first check runs and persists a fingerprint only after success. Failure invalidates it.
+
+The fingerprint stores each input path, size, nanosecond mtime and ctime; it also stores a SHA-256 of this sorted metadata plus the registry and runner hashes. The scan prunes `.git`, the configured local cache and declared output trees for ordinary recursive paths. It includes untracked files in the declared paths. This is a fast metadata fingerprint: edits that preserve all metadata can escape detection. Run `--force` to check the selected component, or `--all --force-component NAME` to override a particular component. CI and GitHub Actions always execute checks, regardless of fingerprints or flags. Parameterized commands always run. Bootstrap, debug, deploy and other stateful commands never skip automatically.
 
 ```json
 {
@@ -55,8 +59,8 @@ This is an excerpt, not a full commands.json; preserve its schema, tools, other 
     "api": {
       "path": "backend",
       "change_detection": {
-        "lint": {"inputs": ["backend/src/**/*", "backend/tests/**/*", "backend/pyproject.toml"]},
-        "validate": {"inputs": ["backend/**/*", "shared/**/*"], "exclude": ["**/__pycache__/**"]}
+        "validate": {"inputs": ["backend/**/*", "shared/**/*", "pyproject.toml", "uv.lock"],
+                     "exclude": ["**/__pycache__/**", "**/.venv/**"]}
       }
     }
   }
@@ -64,11 +68,13 @@ This is an excerpt, not a full commands.json; preserve its schema, tools, other 
 ```
 
 ```bash
-scripts/agent-env.sh validate --component api --changed
+scripts/agent-env.sh validate --component api
+scripts/agent-env.sh validate --component api --force
+scripts/agent-env.sh validate --all --force-component api
 scripts/agent-env.sh changes --component api --for-command validate --json
 ```
 
-The globs and excludes above are illustrative and require review. A skipped check means only that the declared files have unchanged metadata since that command last passed **locally**; it does not establish freshness of services, dependencies, time-sensitive tests, tools, generated files outside the globs, or a clean CI run. File metadata can be preserved across edits or restored from archives. For higher assurance, run without `--changed`, use hashes or the project's own incremental build graph, and keep CI full. Never opt a stateful, deployment or externally dependent check into metadata skipping without a project-specific invalidation rule.
+`changes` reports changed paths, the metadata hash, last successful check and newest input age. The old `--changed` flag remains accepted as an alias for the default behavior. Fingerprints are advisory: changes to external services, tools or dependencies outside the declared inputs need a forced run or an expanded input scope.
 
 ## VS Code task ingestion
 

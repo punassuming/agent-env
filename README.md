@@ -70,6 +70,7 @@ From a bootstrapped repository:
 ./scripts/agent-env.sh help
 ./scripts/agent-env.sh catalog --json
 ./scripts/agent-env.sh status
+./scripts/agent-env.sh failures --limit 3
 ./scripts/agent-env.sh doctor --json
 ./scripts/agent-env.sh test --component apps-api
 ./scripts/agent-env.sh validate --all
@@ -82,7 +83,7 @@ From a bootstrapped repository:
 
 Commands execute as argv arrays without shell interpolation. An unconfigured command, missing executable, or failed step returns nonzero. The initial `validate` composition covers discovered checks; update it when adding checks. `deploy` remains unconfigured until a target-specific procedure, artifact identity, verification, and rollback path are supplied. The command runner does not perform automatic deployments.
 
-Every executed step records the latest run, retained last failure and bounded output log under the ignored local root; `status` gives a user or agent a stable path to the last failure. The [runner contract](.agents/skills/bootstrap-agent-env/references/runtime.md) documents targeted file/test commands with declared parameters, a `catalog` that reads `.vscode/tasks.json` without executing shell tasks, and opt-in local `--changed` checks based on explicitly declared input metadata. Metadata matching is advisory: the default and CI validation paths run the actual checks.
+Every executed step records the latest run and bounded output under the ignored local root; `failures` prints retained failure logs directly, and `status` shows receipts. The [runner contract](.agents/skills/bootstrap-agent-env/references/runtime.md) documents targeted file/test commands with declared parameters, a `catalog` that reads `.vscode/tasks.json` without executing shell tasks, and default local skipping based on per-command declared input metadata. Use `--force` or `--force-component NAME` to run unchanged components; CI always runs the actual checks.
 
 ## Projects and platforms
 

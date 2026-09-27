@@ -92,12 +92,29 @@ def read_json(path: Path) -> dict:
         return {}
 
 
+def failure_history(folder: Path) -> list[dict]:
+    entries = read_json(folder / "failure-history.json").get("failures", [])
+    if isinstance(entries, list):
+        return [entry for entry in entries if isinstance(entry, dict)]
+    return []
+
+
+def failure_log(base: Path, folder: Path, event: dict) -> str:
+    path = event.get("log")
+    if not isinstance(path, str):
+        return ""
+    candidate = (base / path).resolve()
+    if not candidate.is_relative_to(folder.resolve()) or not candidate.is_file():
+        return ""
+    return candidate.read_text(encoding="utf-8", errors="replace")
+
+
 def record_run(base: Path, registry: dict, component: str, command: str, argv: list[str],
                code: int, output: str, reason: str = "") -> None:
     folder = state_root(base, registry)
-    logs = folder / "logs"
-    if not logs.resolve().is_relative_to(base.resolve()):
-        raise ValueError("agent-env log directory resolves outside the repository")
+    logs = folder / ("failures" if code else "logs")
+    if not logs.resolve().is_relative_to(folder.resolve()):
+        raise ValueError("agent-env log directory resolves outside local state")
     logs.mkdir(parents=True, exist_ok=True)
     log = logs / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:10] + ".log")
     with log.open("x", encoding="utf-8", errors="replace") as stream:
@@ -108,14 +125,28 @@ def record_run(base: Path, registry: dict, component: str, command: str, argv: l
              "log": str(log.relative_to(base)), "reason": reason}
     save_json(folder / "last-run.json", event)
     if code:
+        history = failure_history(folder)
+        history.append(event)
+        expired, history = history[:-30], history[-30:]
+        save_json(folder / "failure-history.json", {"schema_version": 1, "failures": history})
         save_json(folder / "last-failure.json", event)
+        for old in expired:
+            old_path = (base / old.get("log", "")).resolve()
+            if old_path.is_relative_to(logs.resolve()) and old_path != log:
+                old_path.unlink(missing_ok=True)
     else:
         previous_failure = read_json(folder / "last-failure.json")
         if (previous_failure.get("component"), previous_failure.get("command")) == (component, command):
             previous_failure["resolved_at_utc"] = event["time_utc"]
             save_json(folder / "last-failure.json", previous_failure)
-    for previous in sorted(logs.glob("*.log"), key=lambda p: p.stat().st_mtime_ns)[:-30]:
-        previous.unlink(missing_ok=True)
+            history = failure_history(folder)
+            for entry in history:
+                if entry.get("log") == previous_failure.get("log"):
+                    entry["resolved_at_utc"] = event["time_utc"]
+                    save_json(folder / "failure-history.json", {"schema_version": 1, "failures": history})
+                    break
+        for previous in sorted(logs.glob("*.log"), key=lambda p: p.stat().st_mtime_ns)[:-30]:
+            previous.unlink(missing_ok=True)
 
 
 def command_parameters(component: dict, command: str, supplied: dict[str, str]) -> dict[str, str]:
@@ -166,25 +197,41 @@ def input_snapshot(base: Path, registry: dict, component: dict, command: str) ->
     spec = component.get("change_detection", {}).get(command)
     if not isinstance(spec, dict) or not isinstance(spec.get("inputs"), list) or not spec["inputs"]:
         return None
+    excluded = spec.get("exclude", [])
+    if not isinstance(excluded, list) or not all(isinstance(x, str) for x in excluded):
+        raise ValueError("change_detection exclude must be a list of patterns")
+    def excluded_path(relative: str) -> bool:
+        return any(fnmatch.fnmatch(relative, rule) or fnmatch.fnmatch("./" + relative, rule)
+                   for rule in excluded)
+
     files = set()
+    local_root = (base / registry.get("local_root", ".local")).resolve()
     for pattern in spec["inputs"]:
         if not isinstance(pattern, str) or not pattern or Path(pattern).is_absolute() or ".." in Path(pattern).parts:
             raise ValueError("change_detection inputs must be relative repository paths")
+        # Recursive directory inputs are the standard default; prune ignored build/cache
+        # trees before descending instead of globbing through node_modules or .git.
+        directory_name = "." if pattern == "**/*" else pattern[:-5] if pattern.endswith("/**/*") else None
+        if directory_name is not None and not glob.has_magic(directory_name):
+            directory = base / directory_name
+            if directory.is_dir():
+                for parent, dirs, names in os.walk(directory, followlinks=False):
+                    files.update(Path(parent) / name for name in dirs if (Path(parent) / name).is_symlink())
+                    dirs[:] = [name for name in dirs if name not in {".git", ".hg", ".svn"}
+                               and not (Path(parent) / name).resolve().is_relative_to(local_root)
+                               and not excluded_path((Path(parent) / name).relative_to(base).as_posix() + "/x")]
+                    files.update(Path(parent) / name for name in names)
+                continue
         for name in glob.glob(str(base / pattern), recursive=True, include_hidden=True):
             candidate = Path(name)
             if candidate.is_dir() and not candidate.is_symlink():
                 files.update(p for p in candidate.rglob("*") if p.is_file() or p.is_symlink())
             elif candidate.is_file() or candidate.is_symlink():
                 files.add(candidate)
-    excluded = spec.get("exclude", [])
-    if not isinstance(excluded, list) or not all(isinstance(x, str) for x in excluded):
-        raise ValueError("change_detection exclude must be a list of patterns")
     stats = {}
-    local_root = (base / registry.get("local_root", ".local")).resolve()
     for file in files:
         relative = file.relative_to(base).as_posix()
-        if file.is_relative_to(local_root) or ".git" in file.relative_to(base).parts or any(
-                fnmatch.fnmatch(relative, x) for x in excluded):
+        if file.is_relative_to(local_root) or ".git" in file.relative_to(base).parts or excluded_path(relative):
             continue
         if file.is_symlink() or not file.resolve().is_relative_to(base) or not file.is_file():
             return None
@@ -192,7 +239,9 @@ def input_snapshot(base: Path, registry: dict, component: dict, command: str) ->
         stats[relative] = [stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns]
     if not stats:
         return None
-    return {"files": dict(sorted(stats.items())),
+    files = dict(sorted(stats.items()))
+    return {"files": files,
+            "metadata_sha256": hashlib.sha256(json.dumps(files, separators=(",", ":")).encode()).hexdigest(),
             "registry_sha256": hashlib.sha256((base / ".agents/commands.json").read_bytes()).hexdigest(),
             "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
 
@@ -252,16 +301,20 @@ def run_step(base: Path, registry: dict, component: str, command: str,
 
 
 def run_command(base: Path, registry: dict, command: str, name: str | None, all_components: bool,
-                *, changed: bool = False, parameters: dict[str, str] | None = None) -> int:
+                *, force: bool = False, force_components: list[str] | None = None,
+                parameters: dict[str, str] | None = None) -> int:
     entries = selected_components(registry, name, all_components)
+    forced = set(force_components or [])
+    unknown = forced - {entry[0] for entry in entries}
+    if unknown:
+        raise ValueError(f"Forced component not selected: {', '.join(sorted(unknown))}")
     env = environment(base, registry)
     status = 0
     bootstrapped: set[str] = set()
     supplied = parameters or {}
     if supplied and len(entries) != 1:
         raise ValueError("Parameterized commands require --component NAME")
-    if changed and command not in {"validate", "lint", "format-check", "typecheck", "test", "build", "docs-check"}:
-        raise ValueError("--changed supports deterministic validation commands only")
+    incremental = command in {"validate", "lint", "format-check", "typecheck", "test", "build", "docs-check"}
     for component_name, component in entries:
         steps = component.get("commands", {}).get(command)
         work_component = component
@@ -286,7 +339,7 @@ def run_command(base: Path, registry: dict, command: str, name: str | None, all_
             status = status or 2
             continue
         snapshot = input_snapshot(base, registry, component, command)
-        if changed and not supplied and snapshot is not None and not os.environ.get("CI") and not os.environ.get("GITHUB_ACTIONS") and change_state(base, registry, component_name, command, snapshot):
+        if incremental and not force and component_name not in forced and not supplied and snapshot is not None and not os.environ.get("CI") and not os.environ.get("GITHUB_ACTIONS") and change_state(base, registry, component_name, command, snapshot):
             print(f"SKIPPED UNCHANGED {component_name}:{command} (prior successful local run)")
             continue
         for step in steps:
@@ -304,7 +357,7 @@ def run_command(base: Path, registry: dict, command: str, name: str | None, all_
                 status = status or code
                 break
         else:
-            if not supplied and snapshot is not None and not os.environ.get("CI") and not os.environ.get("GITHUB_ACTIONS"):
+            if incremental and not supplied and snapshot is not None:
                 after = input_snapshot(base, registry, component, command)
                 change_state(base, registry, component_name, command, snapshot if after is None else after,
                              update=after is not None, invalidate=after is None)
@@ -456,6 +509,29 @@ def latest_status(base: Path, registry: dict) -> dict:
             "last_failure_followed_by_success": resolved}
 
 
+def failures(base: Path, registry: dict, component: str | None, limit: int, as_json: bool) -> None:
+    if not 1 <= limit <= 30:
+        raise ValueError("--limit must be between 1 and 30")
+    folder = state_root(base, registry)
+    history = failure_history(folder)
+    if not history:
+        last = read_json(folder / "last-failure.json")
+        history = [last] if last else []  # Older installations have only this receipt.
+    entries = [entry for entry in reversed(history) if component is None or entry.get("component") == component][:limit]
+    results = [{"event": entry, "output": failure_log(base, folder, entry)} for entry in entries]
+    if as_json:
+        print(json.dumps({"failures": results}, indent=2))
+    elif not results:
+        print("No recorded failures")
+    else:
+        for result in results:
+            event = result["event"]
+            print(f"FAILED {event.get('component')}:{event.get('command')} exit {event.get('exit_code')} at {event.get('time_utc')}")
+            if event.get("reason"):
+                print(f"Reason: {event['reason']}")
+            print(result["output"] or "[No retained output]", end="\n")
+
+
 def parse_parameters(items: list[str], file: str | None, node_id: str | None) -> dict[str, str]:
     values = {}
     for entry in items:
@@ -477,7 +553,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--component", help="Component name")
     parser.add_argument("--all", action="store_true", help="Run every component")
     parser.add_argument("--json", action="store_true", help="Machine-readable list or doctor output")
-    parser.add_argument("--changed", action="store_true", help="Skip only a component with explicit unchanged inputs and a prior successful run")
+    parser.add_argument("--force", action="store_true", help="Run selected components even if their validated inputs are unchanged")
+    parser.add_argument("--force-component", action="append", default=[], help="With --all, always run this component (repeatable)")
+    parser.add_argument("--changed", action="store_true", help="Legacy alias for default incremental validation behavior")
+    parser.add_argument("--limit", type=int, default=1, help="Number of recent failures to display (1-30)")
     parser.add_argument("--param", action="append", default=[], help="Named parameter for a registered command: NAME=VALUE")
     parser.add_argument("--file", help="Shorthand for --param file=PATH")
     parser.add_argument("--node-id", help="Shorthand for --param node_id=FILE::TEST")
@@ -500,6 +579,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "status":
             print(json.dumps(latest_status(base, registry), indent=2))
             return 0
+        if args.command == "failures":
+            failures(base, registry, args.component, args.limit, args.json)
+            return 0
         if args.command == "changes":
             report = {}
             for name, component in selected_components(registry, args.component, args.all):
@@ -513,6 +595,7 @@ def main(argv: list[str] | None = None) -> int:
                 newest = max(x[1] for x in new.values()) / 1e9 if new else None
                 report[name] = {"configured": snapshot is not None,
                                 "unchanged_since_success": bool(snapshot and previous.get("snapshot") == snapshot),
+                                "metadata_sha256": snapshot.get("metadata_sha256") if snapshot else None,
                                 "files": len(new), "changed_files": changed_files,
                                 "registry_or_runner_changed": bool(snapshot and previous.get("snapshot") and any(
                                     snapshot.get(key) != previous["snapshot"].get(key)
@@ -528,7 +611,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 for name, component in registry["components"].items():
                     print(f"{name} ({component['path']}): {', '.join(component.get('commands', {}))}")
-                print("Use COMMAND --component NAME, or COMMAND --all. Unconfigured commands fail.")
+                print("Use COMMAND --component NAME, or COMMAND --all. Use --force to rerun; failures shows logs. Unconfigured commands fail.")
             return 0
         if args.command == "doctor":
             report = {}
@@ -546,7 +629,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(report, indent=2))
             return 0 if report["local_writable"] and all(v["path_exists"] and not v["missing_executables"] for v in report.values() if isinstance(v, dict)) else 1
         return run_command(base, registry, args.command, args.component, args.all,
-                           changed=args.changed,
+                           force=args.force, force_components=args.force_component,
                            parameters=parse_parameters(args.param, args.file, args.node_id))
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         print(f"agent-env: {exc}", file=sys.stderr)

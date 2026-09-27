@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -108,6 +108,11 @@ def discover(path: Path) -> dict:
             commands["validate"].append(gradle_check)
         found["root" if relative == "." else relative.replace("/", "-")] = {
             "path": relative, "evidence": evidence, "tools": sorted(set(tools)), "commands": commands,
+            "change_detection": {name: {"inputs": ["**/*" if relative == "." else relative + "/**/*"],
+                                       "exclude": ["**/node_modules/**", "**/.venv/**", "**/venv/**",
+                                                   "**/target/**", "**/build/**", "**/dist/**",
+                                                   "**/__pycache__/**", "**/.gradle/**", "**/.next/**"]}
+                                 for name in checks + ["validate"] if commands.get(name)},
             "unconfigured": [name for name in ("test", "debug", "deploy-plan", "deploy", "verify-deploy") if not commands.get(name)]
         }
         if bootstrap_from:
@@ -238,7 +243,7 @@ def finalize(path: Path) -> None:
     if not components or any(not c.get("commands", {}).get("validate") for c in components.values()):
         raise ValueError("Each component needs real validate steps before finalizing")
     for command in ("doctor", "validate"):
-        result = subprocess.run([sys.executable, str(runner), command, "--all"], cwd=path, check=False)
+        result = subprocess.run([sys.executable, str(runner), command, "--all", "--force"], cwd=path, check=False)
         if result.returncode:
             raise ValueError(f"{command} failed (exit {result.returncode}); applied version unchanged")
     data["applied_version"] = data.pop("pending_version")
