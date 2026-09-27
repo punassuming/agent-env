@@ -16,6 +16,8 @@ import subprocess
 import sys
 import time
 
+from grading import evaluate, compare_scores
+
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[4]
 GENERATORS = {'controlled': 'prepare.py', 'web': 'prepare_web_cases.py',
@@ -101,6 +103,7 @@ def prepare(args: argparse.Namespace) -> None:
              '.agents/skills/bootstrap-agent-env/references/evaluation.md']
     write(output / 'eval-run.json', {
         'schema_version': 1, 'suite': args.suite, 'variant': args.variant,
+        'replicate': args.replicate,
         'source': str(source), 'source_revision': revision.stdout.strip() if revision.returncode == 0 else None,
         'source_digest': source_digest(source),
         'target_agents_sha256': digest(args.agents_file.resolve()) if args.agents_file else None,
@@ -129,10 +132,22 @@ def record(args: argparse.Namespace) -> None:
     if not isinstance(checks, list) or any(not isinstance(c, dict) or
             not {'id', 'argv', 'exit_code'} <= c.keys() or
             not isinstance(c['exit_code'], int) or not isinstance(c['argv'], list)
+            or ('test_count' in c and (type(c['test_count']) is not int or c['test_count'] < 0))
             for c in checks):
         raise ValueError('checks must be a JSON list of {id, argv: array, exit_code: integer}')
+    for c in checks:
+        if c.get('test_count', 0) > 0 and 'log' not in c:
+            raise ValueError('nonzero test_count requires an actual command log')
+        if 'log' in c and not Path(c['log']).is_file():
+            raise ValueError(f'check log missing: {c["log"]}')
     observations.mkdir(parents=True)
     shutil.copyfile(args.trace, observations / 'trace.txt')
+    for index, c in enumerate(checks):
+        if 'log' in c:
+            destination = observations / f'check-{index}.log'
+            shutil.copyfile(c.pop('log'), destination)
+            c['log_file'] = destination.name
+            c['log_sha256'] = digest(destination)
     write(observations / 'checks.json', checks)
     write(observations / 'record.json', {
         'schema_version': 1, 'agent': args.agent, 'model': args.model,
@@ -147,6 +162,8 @@ def record(args: argparse.Namespace) -> None:
 def invoke(args: argparse.Namespace) -> None:
     root = args.run.resolve()
     meta = read(root / 'eval-run.json')
+    if source_digest(Path(meta['source'])) != meta['source_digest']:
+        raise ValueError('source changed since prepare; create a fresh run from a frozen checkout')
     case = args.case
     if case not in meta['cases']:
         raise ValueError(f'unknown case: {case}')
@@ -203,15 +220,45 @@ def assertions(path: Path, required: list[str], observed: dict | None) -> dict:
         paths = {v.get('path', '') for v in components.values() if isinstance(v, dict)}
         argv_blob = json.dumps(registry.get('components', {})).lower()
     except (ValueError, TypeError):
-        paths, argv_blob = set(), ''
+        components, paths, argv_blob = {}, set(), ''
+    missing_native = []
+    for component_path in required:
+        package = path / component_path / 'package.json'
+        if package.is_file():
+            try:
+                scripts = read(package).get('scripts', {})
+            except (ValueError, TypeError):
+                scripts = {}
+            present = set().union(*(set(data.get('commands', {})) for data in components.values()
+                if isinstance(data, dict) and data.get('path') == component_path)) if components else set()
+            missing_native.extend(f'{component_path}:{name}' for name in ('test', 'lint', 'build')
+                if name in scripts and name not in present)
     assessment = (agents / 'assessment.md').is_file()
     instructions = (path / 'AGENTS.md').is_file()
     prior_instructions = subprocess.run(['git', '-C', str(path), 'cat-file', '-e', 'HEAD:AGENTS.md'],
                                         capture_output=True).returncode == 0
     fixture_rev = subprocess.run(['git', '-C', str(path), 'rev-parse', 'HEAD^{tree}'],
                                  capture_output=True, text=True)
+    fixture_files = subprocess.run(['git', '-C', str(path), 'ls-tree', '-r', 'HEAD'],
+                                   capture_output=True, text=True)
+    project_hash = hashlib.sha256('\n'.join(line for line in fixture_files.stdout.splitlines()
+        if not line.split('\t')[-1].endswith('/AGENTS.md') and
+           line.split('\t')[-1] != 'AGENTS.md').encode()).hexdigest() if fixture_files.returncode == 0 else None
+    tracked_paths = [line.split('\t')[-1] for line in fixture_files.stdout.splitlines() if '\t' in line]
+    fixture_has_tests = any(name.startswith(('tests/', 'test/')) or
+        '/tests/' in name or '/test/' in name or name.endswith(('_test.go', '.test.js', '.test.jsx'))
+        for name in tracked_paths)
+    changed = subprocess.run(['git', '-C', str(path), 'status', '--porcelain', '--untracked-files=all'],
+                             capture_output=True, text=True)
+    changed_paths = [line[3:] for line in changed.stdout.splitlines() if len(line) > 3]
+    application_edits = sorted(name for name in changed_paths if name.startswith((
+        'src/', 'app/', 'backend/app/', 'tests/', 'test/', 'services/', 'apps/', 'packages/')) and
+        not name.startswith(('apps/.agents/', 'services/.agents/')))
     skill = (agents / 'skills/bootstrap-agent-env/SKILL.md').is_file()
     ci = any((path / '.github/workflows').glob('*.yml')) or any((path / '.github/workflows').glob('*.yaml'))
+    ci_files = list((path / '.github/workflows').glob('*.yml')) + list((path / '.github/workflows').glob('*.yaml'))
+    ci_steps = any(re.search(r'(?m)^\s*[-]?\s*(run|uses):', file.read_text(encoding='utf-8'))
+                   for file in ci_files)
     ignore = (path / '.gitignore').read_text() if (path / '.gitignore').is_file() else ''
     ignored_cache = bool(re.search(r'(?m)^\s*\.?/?\.local/?\s*$', ignore))
     release = {}
@@ -236,11 +283,17 @@ def assertions(path: Path, required: list[str], observed: dict | None) -> dict:
     successful = [c['id'] for c in checks if c['exit_code'] == 0]
     # Passing check receipts are observations, not independent verification of test quality.
     structural = {'assessment': assessment, 'instructions': instructions, 'installed_skill': skill,
-                  'ci_configured': ci, 'cache_ignored': ignored_cache, 'bootstrap_record_valid': receipt_valid,
+                  'ci_configured': ci, 'ci_steps_present': ci_steps,
+                  'cache_ignored': ignored_cache, 'bootstrap_record_valid': receipt_valid,
                   'required_components': all(item in paths for item in required),
+                  'native_scripts_covered': not missing_native,
                   'release_checks_configured': all(release.values())}
     return {'structural': structural, 'release': release, 'registered_paths': sorted(paths),
             'fixture_tree': fixture_rev.stdout.strip() if fixture_rev.returncode == 0 else None,
+            'fixture_project_digest': project_hash,
+            'fixture_has_tests': fixture_has_tests,
+            'missing_native_scripts': missing_native,
+            'changed_paths': changed_paths, 'application_edits_review': application_edits,
             'instructions_origin': 'fixture' if prior_instructions else 'agent_or_preexisting_untracked',
             'agent': observed['record']['agent'] if observed else None,
             'model': observed['record']['model'] if observed else None,
@@ -248,6 +301,7 @@ def assertions(path: Path, required: list[str], observed: dict | None) -> dict:
             'version': {'applied': applied, 'pending': receipt.get('pending_version')},
             'observed_successful_checks': successful,
             'observed_failed_checks': [c['id'] for c in checks if c['exit_code'] != 0],
+            'observed_checks': checks,
             'issues': ([name for name, passed in structural.items() if not passed] +
                        (['premature_finalize'] if applied and not receipt.get('pending_version') and (not observed or
                          not any(c['id'] == 'validate' and c['exit_code'] == 0 for c in checks) or
@@ -264,9 +318,11 @@ def grade(args: argparse.Namespace) -> None:
     if digest(root / 'run_manifest.json') != meta['manifest_hash']:
         raise ValueError('manifest changed since preparation')
     report = {'schema_version': 1, 'suite': meta['suite'], 'variant': meta['variant'],
+              'replicate': meta.get('replicate', '1'),
               'source_revision': meta['source_revision'], 'source_digest': meta['source_digest'],
               'target_agents_sha256': meta.get('target_agents_sha256'),
               'instruction_hashes': meta['instruction_hashes'], 'host': meta['host'],
+              'source_drift': source_digest(Path(meta['source'])) != meta['source_digest'],
               'cases': {}}
     for case in meta['cases']:
         path = Path(manifest['cases'][case]['target'])
@@ -278,6 +334,11 @@ def grade(args: argparse.Namespace) -> None:
                     rec['trace_sha256'] == digest(observation / 'trace.txt') and \
                     rec['checks_sha256'] == digest(observation / 'checks.json'):
                 observed = {'record': rec, 'checks': read(observation / 'checks.json')}
+                for check in observed['checks']:
+                    if 'log_file' in check:
+                        logfile = observation / check['log_file']
+                        if not logfile.is_file() or check.get('log_sha256') != digest(logfile):
+                            raise ValueError(f'check log integrity mismatch: {case}')
             else:
                 raise ValueError(f'observation integrity mismatch: {case}')
         needed = EXPECTED[meta['suite']][case]
@@ -323,6 +384,7 @@ def main() -> int:
     p.add_argument('--source', type=Path, default=REPO)
     p.add_argument('--agents-file', type=Path, help='preload this AGENTS.md into each fixture commit')
     p.add_argument('--variant', choices=['skill', 'none'], default='skill')
+    p.add_argument('--replicate', default='1', help='matched repeat identifier, e.g. 1, 2, 3')
     p.set_defaults(func=prepare)
     p = sub.add_parser('record', help='attach operator-observed agent trace and command receipts')
     p.add_argument('--run', type=Path, required=True)
@@ -351,6 +413,14 @@ def main() -> int:
     p.add_argument('--before', type=Path, required=True)
     p.add_argument('--after', type=Path, required=True)
     p.set_defaults(func=compare)
+    p = sub.add_parser('score', help='apply an evidence-backed reviewer rubric to one graded run')
+    p.add_argument('--run', type=Path, required=True)
+    p.add_argument('--review', type=Path, required=True)
+    p.set_defaults(func=evaluate)
+    p = sub.add_parser('compare-scores', help='compare matched repeated scored runs')
+    p.add_argument('--baseline', type=Path, nargs='+', required=True)
+    p.add_argument('--candidate', type=Path, nargs='+', required=True)
+    p.set_defaults(func=compare_scores)
     args = parser.parse_args()
     try:
         args.func(args)

@@ -31,7 +31,7 @@ For subagent or manually launched trials, save the actual trace and check result
 ```json
 [
   {"id": "validate", "argv": ["./scripts/agent-env.sh", "validate", "--all"], "exit_code": 1},
-  {"id": "unit-tests", "argv": ["python", "-m", "unittest", "discover", "-s", "tests"], "exit_code": 0}
+  {"id": "unit-tests", "argv": ["python", "-m", "unittest", "discover", "-s", "tests"], "exit_code": 0, "test_count": 1, "log": "/path/to/unittest-output.txt"}
 ]
 ```
 
@@ -44,6 +44,8 @@ python "$EVAL" compare --before .local/eval-A/grade.json --after .local/eval-B/g
 ```
 
 The grader performs no project commands. It checks the assessment, instructions, installed skill, CI file, ignored cache, expected component paths, and whether existing release artifacts have candidate checks. It flags a finalized fresh checkout with no recorded successful broad validation, and marks CI execution **unverified**. These are structural proxies: a registered command can be a no-op; a passed exit code need not mean any tests were collected. Review command argv, test counts, CI logs, deployment scope, and the agent's reasoning before accepting a result. Use human review for ambiguous release intent and whether coverage is meaningful. An agent's written claim is not an execution receipt.
+
+Read `grading.md` before claiming that a skill change helped. `score --run RUN --review REVIEW.json` requires a separate evidence-backed review on six dimensions and applies objective ceilings and critical failure gates. `compare-scores --baseline OLD_1/score.json ... --candidate NEW_1/score.json ...` compares paired repeats by fixture, model, host and reviewer. A single clean run remains insufficient evidence of improvement; grading rejects a changed source after fixture preparation.
 
 ## Improvement loop
 
