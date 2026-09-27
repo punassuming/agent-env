@@ -2,19 +2,19 @@
   "schema_version": 1,
   "skills": {
     "bootstrap-agent-env": {
-      "version": "0.3.1",
+      "version": "0.4.0",
       "source": ".agents/skills/bootstrap-agent-env",
       "destinations": [".agents/skills/bootstrap-agent-env", ".claude/skills/bootstrap-agent-env"],
       "default": true
     },
     "repo-agent-workflow": {
-      "version": "0.3.1",
+      "version": "0.4.0",
       "source": ".agents/skills/bootstrap-agent-env/assets/skills/repo-agent-workflow",
       "destinations": [".agents/skills/repo-agent-workflow"],
       "default": true
     },
     "claude-repo-agent-workflow": {
-      "version": "0.3.1",
+      "version": "0.4.0",
       "source": ".agents/skills/bootstrap-agent-env/assets/skills/repo-agent-workflow/CLAUDE.md",
       "destinations": [".claude/skills/repo-agent-workflow/SKILL.md"],
       "default": true
@@ -22,13 +22,13 @@
   },
   "agents": {
     "claude-repo-maintainer": {
-      "version": "0.3.1",
+      "version": "0.4.0",
       "source": ".agents/agents/claude/repo-maintainer.md",
       "destinations": [".claude/agents/repo-maintainer.md"],
       "default": true
     },
     "copilot-repo-maintainer": {
-      "version": "0.3.1",
+      "version": "0.4.0",
       "source": ".agents/agents/copilot/repo-maintainer.agent.md",
       "destinations": [".github/agents/repo-maintainer.agent.md"],
       "default": true

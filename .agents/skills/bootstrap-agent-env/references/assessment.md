@@ -5,7 +5,7 @@ For every bootstrap or redeploy, write `.agents/assessment.md` in the target. Us
 - Components and boundaries: root packages, workspaces, independent repos, and the files/CI that identify them.
 - Selected toolchain and version source; existing native commands; skills and agent definitions deployed; the reason for each added command.
 - Actual available entry points for setup, test, lint, format, build, docs, debug and deployment. Mark irrelevant or missing capabilities `not applicable` or `unconfigured` with a reason. Add capabilities specific to the project (type checks, security scans, schema checks, Android variants, integration services, etc.).
-- What `validate` runs, what CI provisions, commands and exit status observed locally, failures, and what was not exercised. A zero-test test runner, echo-only wrapper, empty lint scope, or build task missing its executable is incomplete coverage even if a command exits zero.
+- What `validate` runs, what CI provisions, commands and exit status observed locally, failures, and what was not exercised. Separate application, container build, Compose, rendered manifest/chart and live deployment coverage when those artifacts exist. A zero-test test runner, echo-only wrapper, empty lint scope, or build task missing its executable is incomplete coverage even if a command exits zero.
 - Sandbox observations: writable roots, tool/cache/temp locations and network or permission blocks; the selected ignored local root and whether any existing overrides were preserved. Follow `sandbox.md` when tool execution fails.
 - Gaps and opportunities supported by repository evidence; fixes made; deployment artifact/target/verification/rollback if known; `pending_version` or `applied_version` and why.
 
