@@ -73,6 +73,22 @@ class BootstrapIntegrationTests(unittest.TestCase):
         self.assertTrue(tracked.exists())
         self.assertNotIn("/.local/", (self.repo / ".gitignore").read_text())
 
+    def test_unknown_toolchain_can_be_adapted_but_not_finalized_empty(self):
+        (self.repo / "justfile").write_text("test:\n    echo placeholder\n")
+        self.assertEqual(discover(self.repo), {})
+        install(self.repo, {})
+        self.assertTrue((self.repo / ".agents/skills/bootstrap-agent-env/SKILL.md").is_file())
+        with self.assertRaisesRegex(ValueError, "real validate steps"):
+            finalize(self.repo)
+        record = json.loads((self.repo / ".agents/bootstrap.json").read_text())
+        self.assertEqual(record["pending_version"], VERSION)
+        registry = load_registry(self.repo)
+        registry["components"]["root"] = {"path": ".", "tools": ["python"], "evidence": ["justfile"],
+            "commands": {"validate": [{"argv": [sys.executable, "-c", "print('custom check')"]}]}}
+        (self.repo / ".agents/commands.json").write_text(json.dumps(registry))
+        finalize(self.repo)
+        self.assertEqual(json.loads((self.repo / ".agents/bootstrap.json").read_text())["applied_version"], VERSION)
+
     def test_polyglot_component_keeps_each_toolchain(self):
         (self.repo / "Cargo.toml").write_text("[package]\nname='example'\nversion='0.1.0'\n")
         (self.repo / "go.mod").write_text("module example.com/test\n\ngo 1.22\n")

@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -120,8 +120,6 @@ def tracked_local(path: Path) -> bool:
 
 
 def install(path: Path, found: dict) -> list[str]:
-    if not found:
-        raise ValueError("No supported toolchain detected. Add a project-specific adapter manually.")
     source_repository = SKILL_ROOT.parents[2]
     deployed = []
     if (source_repository / ".agents/registry.json").is_file():
@@ -221,6 +219,10 @@ def finalize(path: Path) -> None:
     runner = path / ".agents" / "bin" / "runtime.py"
     if not runner.exists():
         raise ValueError("Missing installed command runner")
+    registry = json.loads((path / ".agents" / "commands.json").read_text(encoding="utf-8"))
+    components = registry.get("components", {})
+    if not components or any(not c.get("commands", {}).get("validate") for c in components.values()):
+        raise ValueError("Each component needs real validate steps before finalizing")
     for command in ("doctor", "validate"):
         result = subprocess.run([sys.executable, str(runner), command, "--all"], cwd=path, check=False)
         if result.returncode:
