@@ -90,6 +90,20 @@ class EvalLoopTests(unittest.TestCase):
             site = json.loads(result.stdout)['cases']['static-html-kube']['.']
             self.assertEqual(site['release'], {'container': False, 'kubernetes': False})
             self.assertEqual(site['ci_execution'], 'unverified')
+            target = root / 'static-html-kube'
+            (target / '.agents').mkdir()
+            (target / '.agents/commands.json').write_text(json.dumps({'components':{
+                'root':{'path':'.','commands':{
+                    'container-check':[{'argv':['docker','buildx','build','--check','.']}],
+                    'manifest-check':[{'argv':['node','scripts/check-manifest.js']}]}}}}))
+            (target / 'scripts/check-manifest.js').write_text(
+                'import { spawnSync } from "node:child_process";\n'
+                'spawnSync("docker", ["run", "ghcr.io/yannh/kubeconform:v0.6.7"]);\n')
+            result = self.command('grade', '--run', root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            site = json.loads(result.stdout)['cases']['static-html-kube']['.']
+            self.assertEqual(site['release'], {'container': True, 'kubernetes': True})
+            self.assertIn('scripts/check-manifest.js', site['inspected_adapters'])
 
     def test_fixture_agents_file_is_committed_and_labeled_as_input(self):
         with tempfile.TemporaryDirectory() as temp:

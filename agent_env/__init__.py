@@ -1,3 +1,3 @@
 """Agent registry and bootstrap CLI."""
 
-VERSION = "0.6.0"
+VERSION = "0.6.1"

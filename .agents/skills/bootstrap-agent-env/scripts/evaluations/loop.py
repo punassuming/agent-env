@@ -41,6 +41,27 @@ KINDS = {'container': ('docker', 'podman', 'buildah'),
          'helm': ('helm',)}
 
 
+def command_evidence(path: Path, components: dict) -> tuple[str, list[str]]:
+    """Include small local adapters; their contents remain unverified hypotheses."""
+    blob = json.dumps(components).lower()
+    adapters = []
+    root = path.resolve()
+    for component in components.values():
+        if not isinstance(component, dict):
+            continue
+        for steps in component.get('commands', {}).values():
+            for step in steps if isinstance(steps, list) else []:
+                for arg in step.get('argv', []):
+                    if not isinstance(arg, str) or not arg.endswith(('.js', '.py', '.sh', '.ps1')):
+                        continue
+                    candidate = (path / component.get('path', '.') / arg).resolve()
+                    if candidate.is_relative_to(root) and candidate.is_file() and candidate.stat().st_size < 65536:
+                        relative = str(candidate.relative_to(root))
+                        adapters.append(relative)
+                        blob += '\n' + candidate.read_text(encoding='utf-8', errors='replace').lower()
+    return blob, sorted(set(adapters))
+
+
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -218,9 +239,9 @@ def assertions(path: Path, required: list[str], observed: dict | None) -> dict:
         registry = read(config) if config.is_file() else {}
         components = registry.get('components', {})
         paths = {v.get('path', '') for v in components.values() if isinstance(v, dict)}
-        argv_blob = json.dumps(registry.get('components', {})).lower()
+        argv_blob, adapters = command_evidence(path, components)
     except (ValueError, TypeError):
-        components, paths, argv_blob = {}, set(), ''
+        components, paths, argv_blob, adapters = {}, set(), '', []
     missing_native = []
     for component_path in required:
         package = path / component_path / 'package.json'
@@ -288,7 +309,8 @@ def assertions(path: Path, required: list[str], observed: dict | None) -> dict:
                   'required_components': all(item in paths for item in required),
                   'native_scripts_covered': not missing_native,
                   'release_checks_configured': all(release.values())}
-    return {'structural': structural, 'release': release, 'registered_paths': sorted(paths),
+    return {'structural': structural, 'release': release, 'inspected_adapters': adapters,
+            'registered_paths': sorted(paths),
             'fixture_tree': fixture_rev.stdout.strip() if fixture_rev.returncode == 0 else None,
             'fixture_project_digest': project_hash,
             'fixture_has_tests': fixture_has_tests,
