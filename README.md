@@ -122,3 +122,20 @@ The registry tests deploy a synthetic new skill and agent definition, verify man
 The CI matrix runs on Linux, macOS, and Windows. Four independently authored [scenario fixtures](tests/scenarios) exercise a Python/uv workspace, a pnpm workspace, a flavored Android/Gradle project, and separate Go/Rust repositories coordinated by a workspace manifest. They use fake executables to check command routing without downloading toolchains. POSIX fake-tool scenarios skip Windows; core command and home-sync tests run there. The Android scenario confirms that variant tasks need an agent's project-specific selection; the bootstrap does not guess flavors or release signing.
 
 For agent behavior trials, [the skill evaluation protocol](.agents/skills/bootstrap-agent-env/references/evaluation.md) and its `scripts/evaluations/prepare.py`, `prepare_web_cases.py`, and `prepare_stack_cases.py` create disposable, committed repositories covering Python, Node, FastAPI/pnpm/React layouts, Android/Kotlin, Go, Rust, C#, Django, static HTML, Docker, Compose, Kubernetes and Helm. Give each agent the skill, target, generated `EVAL_ENV.md`, and bootstrap request; inspect its edited files and validation output. The trial instructions describe network and filesystem scope but do not enforce per-agent isolation. A pending version is expected when compilers, SDKs, services or release checks are unavailable. These cases exercise skill interpretation; they do not substitute for builds on provisioned CI runners.
+
+### Evaluate instruction changes
+
+The [evaluation loop](.agents/skills/bootstrap-agent-env/references/evaluation-loop.md) compares agent behavior on the same fresh cases before and after a skill or AGENTS change. The CLI is bundled in the skill, so an installed registry carries it:
+
+```bash
+EVAL=.agents/skills/bootstrap-agent-env/scripts/evaluations/loop.py
+python "$EVAL" prepare --suite controlled --source /path/to/baseline --output .local/eval-before
+python "$EVAL" prepare --suite controlled --source . --output .local/eval-after
+# Run the agents using each generated run_manifest.json prompt and EVAL_ENV.md.
+# Attach the real agent trace and observed command results with `record`.
+python "$EVAL" grade --run .local/eval-before
+python "$EVAL" grade --run .local/eval-after
+python "$EVAL" compare --before .local/eval-before/grade.json --after .local/eval-after/grade.json
+```
+
+`invoke` supports an explicitly provided agent CLI and captures process logs; it does not install or authenticate one, configure its sandbox, or assert that it used the skill. `record` accepts traces from subagents and other runners. The grader reads resulting files and receipts without executing target commands, and flags missing components, release validation candidates, and premature finalization. Its report is a structural screening tool: review trace, test counts, native CI outcomes and deployment intent before concluding that a revision improved agent behavior. Keep runs under ignored `.local/`; raw traces can include secrets.

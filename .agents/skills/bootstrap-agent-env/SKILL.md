@@ -5,7 +5,7 @@ description: Assess, install, extend, or redeploy a repository's agent environme
 
 # Bootstrap and maintain an agent environment
 
-Current version: **0.4.0**. Read `references/recipes.md` for candidate toolchain commands, `references/contract.md` for the installed contract, and `references/assessment.md` for the required assessment output. Use `references/evaluation.md` for controlled agent trials, `references/infrastructure.md` when Docker/Compose/Kubernetes/Helm files exist, and `references/sandbox.md` for sandbox constraints. The repository's actual commands and requirements take precedence over these examples. Choose the tools, component boundaries, runner and checks from evidence; the registry and recipes are starting points. Preserve the invariant that unavailable checks fail visibly and that a later agent can reproduce the chosen workflow from the repo.
+Current version: **0.5.0**. Read `references/recipes.md` for candidate toolchain commands, `references/contract.md` for the installed contract, and `references/assessment.md` for the required assessment output. Use `references/evaluation-loop.md` to test skill/AGENTS changes on fresh agent trials and `references/evaluation.md` for past results; use `references/infrastructure.md` when Docker/Compose/Kubernetes/Helm files exist and `references/sandbox.md` for sandbox constraints. The repository's actual commands and requirements take precedence over these examples. Choose the tools, component boundaries, runner and checks from evidence; the registry and recipes are starting points. Preserve the invariant that unavailable checks fail visibly and that a later agent can reproduce the chosen workflow from the repo.
 
 ## Assess and install
 
@@ -32,5 +32,9 @@ Read `../../registry.json` from the source checkout to see available skills and 
 - `validate`: execute only registered deterministic commands and propagate failures.
 - `deploy-plan`: show artifact, target, credentials prerequisite, smoke check, and rollback path.
 - `deploy`: only after an explicit request and project-specific target configuration. Verify built artifact identity and health. Never infer a production target from a generic template.
+
+## Improve the instructions
+
+For a change to this skill, a bundled agent definition, or the repository's AGENTS guidance, run `scripts/evaluations/loop.py` against relevant clean fixtures. Compare a baseline and changed source with the same model, runner settings and environment; capture raw traces, check results and structural grades. Inspect regressions and failed checks directly. Add a fixture or assertion for a reproduced failure, then revise the smallest responsible instruction or resource. Keep live agent evaluations distinct from deterministic fixture tests: the latter cannot demonstrate that an agent read a skill or ran meaningful commands. Follow `references/evaluation-loop.md` for the runnable protocol and limitations.
 
 Use the target's recorded `.local/` (or chosen alternative) for disposable cache where the sandbox requires a writable location; preserve preexisting tracked `.local` contents and compatible user overrides. See `references/sandbox.md` for diagnostics and tool-specific tradeoffs. Do not store secrets in cache. Claude Code uses a `.claude/skills` adapter to discover canonical `.agents/skills` skills. Registry deployment includes `.claude/agents` and `.github/agents` provider definitions. If CLAUDE.md masks AGENTS.md, import the latter with `@AGENTS.md` rather than duplicating it.
