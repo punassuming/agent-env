@@ -7,6 +7,32 @@ import unittest
 
 
 class ControlledEvaluationFixtures(unittest.TestCase):
+    def test_framework_cases_separate_components_and_git_roots(self):
+        source = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / 'frameworks'
+            result = subprocess.run([sys.executable,
+                str(source / '.agents/skills/bootstrap-agent-env/scripts/evaluations/prepare_framework_cases.py'),
+                '--output', str(root)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            manifest = json.loads((root / 'run_manifest.json').read_text())
+            self.assertEqual(set(manifest['cases']), {'django-angular', 'express-react-router',
+                                                       'sails-react-router-split'})
+            for case in ('django-angular', 'express-react-router'):
+                self.assertTrue((root / case / '.git').is_dir())
+                self.assertTrue((root / case / 'EVAL_ENV.md').is_file())
+            self.assertTrue((root / 'django-angular/backend/manage.py').is_file())
+            angular = json.loads((root / 'django-angular/frontend/angular.json').read_text())
+            self.assertIn('test', angular['projects']['catalog-web']['architect'])
+            self.assertTrue((root / 'express-react-router/api/test/health.test.mjs').is_file())
+            self.assertTrue((root / 'express-react-router/web/src/main.jsx').is_file())
+            for child in ('api', 'web'):
+                self.assertTrue((root / 'sails-react-router-split' / child / '.git').is_dir())
+            check = subprocess.run(['npm', 'test'], cwd=root / 'sails-react-router-split/api',
+                                   capture_output=True, text=True)
+            self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+            self.assertIn('pass 1', check.stdout)
+
     def test_prepare_creates_four_offline_projects_with_working_native_tests(self):
         source = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temp:

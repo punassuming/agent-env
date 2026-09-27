@@ -11,6 +11,26 @@ CLI = Path(__file__).resolve().parents[1] / '.agents/skills/bootstrap-agent-env/
 
 
 class EvalLoopTests(unittest.TestCase):
+    def test_framework_grader_accepts_simple_workspace_script_delegation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run = Path(temp) / 'frameworks'
+            self.assertEqual(self.command('prepare', '--suite', 'frameworks', '--output', run).returncode, 0)
+            target = run / 'express-react-router'
+            (target / '.agents').mkdir()
+            config = {'components': {
+                'workspace': {'path': '.', 'commands': {'validate': []}},
+                'api': {'path': 'api', 'commands': {'test': [], 'build': []}},
+                'web': {'path': 'web', 'commands': {'test': [], 'build': []}},
+            }}
+            (target / '.agents/commands.json').write_text(json.dumps(config))
+            report = self.command('grade', '--run', run)
+            self.assertEqual(report.returncode, 0, report.stderr)
+            self.assertEqual(json.loads(report.stdout)['cases']['express-react-router']['.']['missing_native_scripts'], [])
+            del config['components']['web']['commands']['build']
+            (target / '.agents/commands.json').write_text(json.dumps(config))
+            report = self.command('grade', '--run', run)
+            self.assertIn('web:build', json.loads(report.stdout)['cases']['express-react-router']['.']['missing_native_scripts'])
+
     def command(self, *args):
         return subprocess.run([sys.executable, str(CLI), *map(str, args)],
                               text=True, capture_output=True)

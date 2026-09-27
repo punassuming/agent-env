@@ -21,7 +21,7 @@ from grading import evaluate, compare_scores
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[4]
 GENERATORS = {'controlled': 'prepare.py', 'web': 'prepare_web_cases.py',
-              'stacks': 'prepare_stack_cases.py'}
+              'stacks': 'prepare_stack_cases.py', 'frameworks': 'prepare_framework_cases.py'}
 EXPECTED = {
     'controlled': {
         'python-library': ['.'], 'node-app': ['.'],
@@ -35,6 +35,11 @@ EXPECTED = {
     },
     'stacks': {case: ['.'] for case in ('android-kotlin', 'go-service-kube',
         'rust-cli-helm', 'csharp-api-compose', 'django-postgres', 'static-html-kube')},
+    'frameworks': {
+        'django-angular': ['backend', 'frontend'],
+        'express-react-router': ['.', 'api', 'web'],
+        'sails-react-router-split': {'api': ['.'], 'web': ['.']},
+    },
 }
 KINDS = {'container': ('docker', 'podman', 'buildah'),
          'compose': ('compose',), 'kubernetes': ('kubectl', 'kubeconform', 'kubeval'),
@@ -232,6 +237,30 @@ def repos(case: str, path: Path, suite: str) -> dict[str, Path]:
     return {name: path / name for name in requirement} if isinstance(requirement, dict) else {'.': path}
 
 
+def covered_workspace_aggregate(path: Path, package: dict, phase: str, components: dict, paths: set) -> bool:
+    """Recognize simple root npm delegations when each target has its own registered command."""
+    members = package.get('workspaces', [])
+    if not isinstance(members, list) or not members or not all(
+            isinstance(member, str) and member in paths for member in members):
+        return False
+    script = package.get('scripts', {}).get(phase, '')
+    if not isinstance(script, str):
+        return False
+    all_members = f'npm run {phase} --workspaces'
+    one_member = re.fullmatch(rf'npm run {re.escape(phase)} --workspace=([^\s]+)', script)
+    selected = members if script == all_members else [one_member.group(1)] if one_member else []
+    if not selected or any(member not in members for member in selected):
+        return False
+    for member in selected:
+        member_package = path / member / 'package.json'
+        if not member_package.is_file() or phase not in read(member_package).get('scripts', {}):
+            return False
+        if not any(isinstance(comp, dict) and comp.get('path') == member and
+                   phase in comp.get('commands', {}) for comp in components.values()):
+            return False
+    return True
+
+
 def assertions(path: Path, required: list[str], observed: dict | None) -> dict:
     agents = path / '.agents'
     config = agents / 'commands.json'
@@ -253,7 +282,9 @@ def assertions(path: Path, required: list[str], observed: dict | None) -> dict:
             present = set().union(*(set(data.get('commands', {})) for data in components.values()
                 if isinstance(data, dict) and data.get('path') == component_path)) if components else set()
             missing_native.extend(f'{component_path}:{name}' for name in ('test', 'lint', 'build')
-                if name in scripts and name not in present)
+                if name in scripts and name not in present and not
+                (component_path == '.' and covered_workspace_aggregate(
+                    path, read(package), name, components, paths)))
     assessment = (agents / 'assessment.md').is_file()
     instructions = (path / 'AGENTS.md').is_file()
     prior_instructions = subprocess.run(['git', '-C', str(path), 'cat-file', '-e', 'HEAD:AGENTS.md'],
