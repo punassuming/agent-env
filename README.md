@@ -69,6 +69,7 @@ From a bootstrapped repository:
 ```bash
 ./scripts/agent-env.sh help
 ./scripts/agent-env.sh catalog --json
+./scripts/agent-env.sh lookup --component apps-api --for-command test
 ./scripts/agent-env.sh status
 ./scripts/agent-env.sh failures --limit 3
 ./scripts/agent-env.sh doctor --json
@@ -81,7 +82,7 @@ From a bootstrapped repository:
 ./scripts/agent-env.ps1 validate --all
 ```
 
-Commands execute as argv arrays without shell interpolation. An unconfigured command, missing executable, or failed step returns nonzero. The initial `validate` composition covers discovered checks; update it when adding checks. `deploy` remains unconfigured until a target-specific procedure, artifact identity, verification, and rollback path are supplied. The command runner does not perform automatic deployments.
+Commands execute as argv arrays without shell interpolation. `.agents/commands.json` is the central run registry: the agent adds named commands and optional `execution` settings for environment overrides, local directories and advisory sandbox needs. `lookup` previews a run without executing it. Host approval or elevation must be requested through the coding agent; the runner cannot grant either. An unconfigured command, missing executable, or failed step returns nonzero. The initial `validate` composition covers discovered checks; update it when adding checks. `deploy` remains unconfigured until a target-specific procedure, artifact identity, verification, and rollback path are supplied. The command runner does not perform automatic deployments.
 
 Every executed step records the latest run and bounded output under the ignored local root; `failures` prints retained failure logs directly, and `status` shows receipts. The [runner contract](.agents/skills/bootstrap-agent-env/references/runtime.md) documents targeted file/test commands with declared parameters, a `catalog` that reads `.vscode/tasks.json` without executing shell tasks, and default local skipping based on repository-wide Git-visible file metadata, with per-command overrides. Use `--force` or `--force-component NAME` to run unchanged components; CI always runs the actual checks.
 

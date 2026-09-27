@@ -29,9 +29,13 @@ def load_registry(base: Path) -> dict:
     return registry
 
 
-def environment(base: Path, configured: dict) -> dict[str, str]:
+def environment(base: Path, configured: dict, component: dict | None = None,
+                command: str | None = None, *, create: bool = True) -> tuple[dict[str, str], dict[str, str]]:
     env = os.environ.copy()
-    cache = base / configured.get("local_root", ".local") / "cache"
+    local = (base / configured.get("local_root", ".local")).resolve()
+    if not local.is_relative_to(base.resolve()) or local == base.resolve():
+        raise ValueError("local_root must be a directory inside the repository")
+    cache = local / "cache"
     # Only set overrides for detected, selected tools. Do not redirect HOME.
     locations = {
         "uv": ("UV_CACHE_DIR", "uv"),
@@ -39,15 +43,60 @@ def environment(base: Path, configured: dict) -> dict[str, str]:
         "rust": ("CARGO_TARGET_DIR", "cargo-target"),
         "npm": ("npm_config_cache", "npm"),
     }
-    tools = {tool for component in configured["components"].values() for tool in component.get("tools", [])}
-    for tool in tools & locations.keys():
+    selected = [component] if component is not None else configured["components"].values()
+    enabled_tools = {tool for item in selected for tool in item.get("tools", [])}
+    overrides = {}
+    for tool in enabled_tools & locations.keys():
         key, folder = locations[tool]
         if key not in env:
             dest = cache / folder
-            dest.mkdir(parents=True, exist_ok=True)
+            if create:
+                dest.mkdir(parents=True, exist_ok=True)
             env[key] = str(dest)
+            overrides[key] = str(dest)
+    if component is not None and command is not None:
+        execution = command_execution(component, command)
+        paths = {"repo": str(base), "component": str((base / component["path"]).resolve()),
+                 "local": str(local), "cache": str(cache)}
+        for key, value in execution.get("env", {}).items():
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) or not isinstance(value, str):
+                raise ValueError("Command env must map variable names to strings")
+            unknown = set(re.findall(r"\{([^{}]+)\}", value)) - paths.keys()
+            if unknown:
+                raise ValueError(f"Unknown environment path placeholder: {', '.join(sorted(unknown))}")
+            rendered = value
+            for placeholder, path in paths.items():
+                rendered = rendered.replace("{" + placeholder + "}", path)
+            env[key] = overrides[key] = rendered
+        for directory in execution.get("create_dirs", []):
+            if not isinstance(directory, str):
+                raise ValueError("create_dirs must contain local directory names")
+            rendered = directory
+            for placeholder, path in paths.items():
+                rendered = rendered.replace("{" + placeholder + "}", path)
+            dest = Path(rendered).resolve()
+            if not dest.is_relative_to(local) or dest == local:
+                raise ValueError("create_dirs must stay inside the local root")
+            if create:
+                dest.mkdir(parents=True, exist_ok=True)
     env["AGENT_ENV_ROOT"] = str(base)
-    return env
+    overrides["AGENT_ENV_ROOT"] = str(base)
+    return env, overrides
+
+
+def command_execution(component: dict, command: str) -> dict:
+    settings = component.get("execution", {})
+    if not isinstance(settings, dict):
+        raise ValueError("execution must map command names to settings")
+    spec = settings.get(command, {})
+    if not isinstance(spec, dict) or not isinstance(spec.get("env", {}), dict) or not isinstance(spec.get("create_dirs", []), list):
+        raise ValueError(f"Invalid execution settings for {command}")
+    needs = spec.get("sandbox", {})
+    if not isinstance(needs, dict) or any(key not in {"network", "outside_workspace", "elevation", "reason"} for key in needs):
+        raise ValueError(f"Invalid sandbox needs for {command}")
+    if any(not isinstance(needs.get(key, False), bool) for key in ("network", "outside_workspace", "elevation")) or not isinstance(needs.get("reason", ""), str):
+        raise ValueError(f"Invalid sandbox needs for {command}")
+    return spec
 
 
 def selected_components(registry: dict, name: str | None, all_components: bool) -> list[tuple[str, dict]]:
@@ -323,7 +372,6 @@ def run_command(base: Path, registry: dict, command: str, name: str | None, all_
     unknown = forced - {entry[0] for entry in entries}
     if unknown:
         raise ValueError(f"Forced component not selected: {', '.join(sorted(unknown))}")
-    env = environment(base, registry)
     status = 0
     bootstrapped: set[str] = set()
     supplied = parameters or {}
@@ -357,6 +405,7 @@ def run_command(base: Path, registry: dict, command: str, name: str | None, all_
         if incremental and not force and component_name not in forced and not supplied and snapshot is not None and not os.environ.get("CI") and not os.environ.get("GITHUB_ACTIONS") and change_state(base, registry, component_name, command, snapshot):
             print(f"SKIPPED UNCHANGED {component_name}:{command} (prior successful local run)")
             continue
+        env, _ = environment(base, registry, work_component, command)
         for step in steps:
             try:
                 argv = expand_step(step, component, command, supplied, workdir)
@@ -498,6 +547,7 @@ def catalog(base: Path, registry: dict) -> dict:
     return {"registry": [{"component": name, "path": item.get("path"),
                           "commands": item.get("commands", {}),
                           "descriptions": item.get("descriptions", {}),
+                          "execution": item.get("execution", {}),
                           "parameters": item.get("parameters", {}),
                           "change_detection": sorted(item.get("change_detection", {}))}
                          for name, item in registry["components"].items()],
@@ -515,7 +565,7 @@ def run_task(base: Path, registry: dict, label: str) -> int:
     if not cwd.is_absolute():
         cwd = base / cwd
     cwd = cwd.resolve()
-    env = environment(base, registry)
+    env, _ = environment(base, registry)
     env.update(task["env"])
     return run_step(base, registry, "vscode", label, task["argv"], cwd, env)
 
@@ -591,6 +641,23 @@ def main(argv: list[str] | None = None) -> int:
                 [f"{entry['component']} ({entry['path']}): {', '.join(entry['commands'])}" for entry in data["registry"]] +
                 [f"VS Code {task['label']}: {'runnable' if task['runnable'] else task['reason']}" for task in data["vscode_tasks"]]))
             return 0
+        if args.command == "lookup":
+            entries = selected_components(registry, args.component, args.all)
+            report = {}
+            for name, component in entries:
+                target = args.for_command
+                steps = component.get("commands", {}).get(target)
+                spec = command_execution(component, target)
+                _, overrides = environment(base, registry, component, target, create=False)
+                report[name] = {"command": target, "configured": bool(steps),
+                                "description": component.get("descriptions", {}).get(target, ""),
+                                "cwd": str((base / component["path"]).resolve()),
+                                "steps": steps or [], "parameters": component.get("parameters", {}).get(target, {}),
+                                "environment_overrides": overrides, "create_dirs": spec.get("create_dirs", []),
+                                "sandbox_needs": spec.get("sandbox", {}),
+                                "change_detection": component.get("change_detection", {}).get(target)}
+            print(json.dumps(report, indent=2))
+            return 0
         if args.command == "run-task":
             if not args.task:
                 raise ValueError("run-task requires --task LABEL")
@@ -630,7 +697,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 for name, component in registry["components"].items():
                     print(f"{name} ({component['path']}): {', '.join(component.get('commands', {}))}")
-                print("Use COMMAND --component NAME, or COMMAND --all. Use --force to rerun; failures shows logs. Unconfigured commands fail.")
+                print("Use lookup --component NAME --for-command COMMAND to inspect a run. Use --force to rerun; failures shows logs. Unconfigured commands fail.")
             return 0
         if args.command == "doctor":
             report = {}

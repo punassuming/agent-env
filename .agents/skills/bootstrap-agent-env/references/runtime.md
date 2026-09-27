@@ -2,6 +2,32 @@
 
 The installed runner is a repository-owned command adapter, not a replacement for the project's native task system. `catalog --json` lists command argv, declared parameters, descriptions, change policies and `.vscode/tasks.json` entries. `help` and `list --json` retain their original behavior. Bash and PowerShell wrappers pass the same arguments to the runner.
 
+## Central run registry
+
+`.agents/commands.json` is the single source of named runs. An agent may add any command name and process `argv` steps under an existing broad component. `catalog --json` lists every command; `lookup --component api --for-command test` displays the exact steps, cwd, declared parameters, configured environment overrides, and sandbox needs without running the command or creating cache directories. Bash and PowerShell wrappers accept the same arguments. Review package scripts and transitive effects before executing them.
+
+```json
+{
+  "components": {
+    "api": {
+      "path": "backend",
+      "commands": {"test": [{"argv": ["uv", "run", "--locked", "pytest"]}]},
+      "descriptions": {"test": "Run API tests"},
+      "execution": {
+        "test": {
+          "env": {"UV_CACHE_DIR": "{cache}/uv", "TMPDIR": "{local}/tmp"},
+          "create_dirs": ["{cache}/uv", "{local}/tmp"],
+          "sandbox": {"network": false, "outside_workspace": false,
+                      "elevation": false, "reason": "Dependencies already synchronized"}
+        }
+      }
+    }
+  }
+}
+```
+
+This is an excerpt. Placeholders in `env` and `create_dirs` are `{repo}`, `{component}`, `{local}`, and `{cache}`; directory creation is restricted to the configured ignored local root. The runner also proposes repository-local caches for selected uv, Go, Cargo build and npm tools if their corresponding environment variable is unset. Explicit command `env` values override these proposals. Store secrets in the host environment rather than the tracked registry. Each command's sandbox needs are **advisory observations**: the runner cannot detect every permission boundary, approve itself, enforce network isolation, or grant elevation. The coding agent should inspect the command, run under its current policy when appropriate, diagnose a denial, and request the minimum host permission through its agent interface if justified. Do not interpret `elevation: true` as permission to bypass approval.
+
 ## Failure handoff
 
 Every executed step records `last-run.json` in the ignored `<local_root>/agent-env/`. Failed steps retain output under `failures/`, with up to 30 failure records in `failure-history.json`; successful steps use rotating `logs/`. `last-failure.json` remains available after later successes, and `failures` prints the actual saved output. `status` reports the latest run and failure metadata, including whether that component and command later passed. A failure with no output reports its reason. Each process log retains the last 512 KiB of output; the runner prints the full stream as it runs. These logs can contain secrets: keep the local root ignored and review before sharing them.

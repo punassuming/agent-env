@@ -1,6 +1,6 @@
 # Running project tools in agent sandboxes
 
-Use this as a diagnostic guide, not a policy file. A skill or environment variable cannot expand a sandbox's permitted filesystem roots or network domains. Codex and Claude have separate filesystem and network controls; first establish which control actually blocked a command. See [Codex sandboxing](https://developers.openai.com/codex/concepts/sandboxing) and [Claude sandboxing](https://code.claude.com/docs/en/sandboxing).
+Use this as a diagnostic guide, not a policy file. Record per-command environment overrides, local directories, and observed permission needs in `.agents/commands.json` under `execution`; inspect them with `lookup --component NAME --for-command COMMAND`. The runner does not grant out-of-sandbox access or elevate processes. A skill or environment variable cannot expand a sandbox's permitted filesystem roots or network domains. Codex and Claude have separate filesystem and network controls; first establish which control actually blocked a command. See [Codex sandboxing](https://developers.openai.com/codex/concepts/sandboxing) and [Claude sandboxing](https://code.claude.com/docs/en/sandboxing).
 
 ## Diagnose before changing configuration
 

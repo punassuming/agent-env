@@ -161,6 +161,44 @@ class RuntimeFeatures(unittest.TestCase):
         self.assertEqual(second.returncode, 0)
         self.assertNotIn('SKIPPED UNCHANGED', second.stdout)
 
+    def test_lookup_exposes_run_requirements_and_command_env(self):
+        (self.repo / 'api').mkdir()
+        (self.repo / 'ui').mkdir()
+        check = {'argv': [sys.executable, '-c',
+            'import os; print(os.getenv("TASK_CACHE_DIR", "none"))']}
+        self.configure({
+            'api': {'path': 'api', 'tools': ['uv'], 'commands': {'validate': [check]},
+                    'descriptions': {'validate': 'Check the API'},
+                    'execution': {'validate': {
+                        'env': {'TASK_CACHE_DIR': '{cache}/api', 'TMPDIR': '{local}/tmp'},
+                        'create_dirs': ['{cache}/api', '{local}/tmp'],
+                        'sandbox': {'network': True, 'outside_workspace': False,
+                                    'elevation': False, 'reason': 'May resolve locked dependencies'}}}},
+            'ui': {'path': 'ui', 'tools': [], 'commands': {'validate': [check]}}
+        })
+        lookup = self.call('lookup', '--component', 'api', '--for-command', 'validate')
+        self.assertEqual(lookup.returncode, 0, lookup.stderr)
+        detail = json.loads(lookup.stdout)['api']
+        self.assertEqual(detail['description'], 'Check the API')
+        self.assertTrue(detail['sandbox_needs']['network'])
+        self.assertEqual(detail['environment_overrides']['TASK_CACHE_DIR'], str(self.repo / '.local/cache/api'))
+        self.assertFalse((self.repo / '.local/cache/api').exists())
+        checked = self.call('validate', '--all')
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        self.assertIn(str(self.repo / '.local/cache/api'), checked.stdout)
+        self.assertIn('none', checked.stdout)
+        self.assertTrue((self.repo / '.local/cache/api').is_dir())
+        self.assertTrue((self.repo / '.local/tmp').is_dir())
+
+    def test_command_cannot_create_directories_outside_local_root(self):
+        self.configure({'app': {'path': '.', 'tools': [],
+            'commands': {'validate': [{'argv': [sys.executable, '-c', 'print("ran")']}]},
+            'execution': {'validate': {'create_dirs': ['{local}/../escape']}}}})
+        result = self.call('validate')
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('create_dirs must stay inside the local root', result.stderr)
+        self.assertFalse((self.repo / 'escape').exists())
+
     def test_declared_file_parameters_are_scoped_and_not_interpolated(self):
         (self.repo / 'src').mkdir()
         (self.repo / 'src/a.py').write_text('pass\n')
