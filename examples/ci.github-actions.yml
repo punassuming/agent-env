@@ -1,0 +1,21 @@
+# Adapt tool provisioning and package-specific services before use.
+name: validation
+on: [push, pull_request]
+jobs:
+  validate:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # Install the toolchains and services selected in .agents/commands.json.
+      - if: runner.os != 'Windows'
+        shell: bash
+        run: ./scripts/agent-env.sh validate --all
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/agent-env.ps1 validate --all

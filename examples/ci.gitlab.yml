@@ -1,0 +1,10 @@
+# Copy into a target repo only after selecting an image containing its runtimes.
+stages: [validate]
+validate:
+  stage: validate
+  image: python:3.11
+  script:
+    - ./scripts/agent-env.sh doctor --all
+    - ./scripts/agent-env.sh validate --all
+  # Add toolchain installation, service containers and selected cache paths
+  # for this specific repository. Do not cache credentials.

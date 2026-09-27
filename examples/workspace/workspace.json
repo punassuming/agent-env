@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "frontend": "../frontend",
+    "api": "../api"
+  }
+}
