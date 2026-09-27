@@ -6,10 +6,10 @@ Use detection as a hypothesis. Read the project's configuration before registeri
 | --- | --- | --- | --- |
 | `Cargo.toml` | `cargo fetch --locked` if appropriate | `cargo fmt --all -- --check`; `cargo clippy --all-targets -- -D warnings`; `cargo test`; `cargo build` | rustfmt and clippy are optional rustup components. |
 | `go.mod` or `go.work` | `go mod download` where applicable | `gofmt` difference check; `go vet ./...`; `go test ./...`; `go build ./...` | Determine workspace and module scope. |
-| `pyproject.toml` + `uv.lock` | `uv sync --locked` | `uv run --locked pytest`, Ruff only if declared | Use `UV_CACHE_DIR`; tests may be elsewhere. |
+| `pyproject.toml` + `uv.lock` | `uv sync --locked` | `uv run --locked pytest`, Ruff only if declared | Workspace members can inherit a root lockfile and bootstrap. Use `UV_CACHE_DIR`; tests may be elsewhere. |
 | Python without uv | existing install mechanism | existing test/lint/typecheck commands | Never switch package manager silently. |
 | `package.json` + `package-lock.json` | `npm ci` | actual scripts from package.json | Reject placeholder test scripts. |
-| `package.json` + `pnpm-lock.yaml` | `pnpm install --frozen-lockfile` | actual scripts from package.json | Respect workspace root and lockfile. |
+| `package.json` + `pnpm-lock.yaml` | `pnpm install --frozen-lockfile` | actual scripts from package.json | Members inherit the root lockfile and bootstrap once at the workspace root. |
 | Gradle wrapper | wrapper | `check`, `build`, or project-specific tasks | On Windows invoke `gradlew.bat`; inspect wrapper and plugins. |
 | Android Gradle app | wrapper + Android SDK | module/variant `lint`, unit test and `assembleDebug` tasks | Identify modules, variants, SDK, and signing needs. |
 

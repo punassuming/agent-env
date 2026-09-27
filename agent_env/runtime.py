@@ -58,13 +58,24 @@ def run_command(base: Path, registry: dict, command: str, name: str | None, all_
     entries = selected_components(registry, name, all_components)
     env = environment(base, registry)
     status = 0
+    bootstrapped: set[str] = set()
     for component_name, component in entries:
         steps = component.get("commands", {}).get(command)
+        work_component = component
+        if command == "bootstrap" and not steps and component.get("bootstrap_from"):
+            inherited = component["bootstrap_from"]
+            if inherited in bootstrapped:
+                print(f"[{component_name}:bootstrap] already installed through {inherited}")
+                continue
+            work_component = registry["components"].get(inherited, {})
+            steps = work_component.get("commands", {}).get(command)
+        if command == "bootstrap" and steps and work_component is component and component_name in bootstrapped:
+            continue
         if not steps:
             print(f"UNCONFIGURED {component_name}:{command}", file=sys.stderr)
             status = status or 2
             continue
-        workdir = (base / component["path"]).resolve()
+        workdir = (base / work_component["path"]).resolve()
         if not workdir.is_dir():
             print(f"MISSING DIRECTORY {component_name}: {workdir}", file=sys.stderr)
             status = status or 2
@@ -86,6 +97,9 @@ def run_command(base: Path, registry: dict, command: str, name: str | None, all_
                 print(f"FAILED {component_name}:{command}: exit {result.returncode}", file=sys.stderr)
                 status = status or result.returncode
                 break
+        else:
+            if command == "bootstrap":
+                bootstrapped.add(component_name if work_component is component else component["bootstrap_from"])
     return status
 
 

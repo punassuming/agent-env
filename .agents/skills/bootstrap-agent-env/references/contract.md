@@ -4,6 +4,8 @@
 
 The command registry uses `components.NAME.path`, `tools`, and `commands.COMMAND` lists. Each command step has `argv` and optional `argv_windows`. Commands execute without a shell from their component directory. A missing command returns nonzero and reports `UNCONFIGURED`. `validate` is an explicit composition; it must be revised when new checks are added.
 
+Workspace members can set `bootstrap_from: root`. Running `bootstrap --all` then runs root installation once; selecting that member alone delegates bootstrap to the root. Ordinary validation remains component-specific.
+
 The repo-owned runner offers `help`, `list --json`, `doctor --json`, and any registered command with `--component NAME` or `--all`. Bash and PowerShell wrappers invoke the same runner. `doctor` is read-only. Running a command can create cache files and can have other effects declared by that command; inspect new candidates before execution.
 
 Each repository independently checks in its runner, registry, skills, scripts, and CI. A developer workspace with separate Git repos uses an explicit manifest to invoke each repo's command surface; it is not a replacement for per-repo configuration. Record dependent component relationships locally when a monorepo requires affected-component validation. If this metadata is missing or unreliable, run the broader suite.

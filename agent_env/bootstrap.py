@@ -35,6 +35,7 @@ def discover(path: Path) -> dict:
         commands: dict[str, list[dict]] = {}
         tools: list[str] = []
         evidence: list[str] = []
+        bootstrap_from = None
         if (folder / "Cargo.toml").exists():
             evidence.append("Cargo.toml")
             tools.append("rust")
@@ -50,10 +51,14 @@ def discover(path: Path) -> dict:
         if (folder / "pyproject.toml").exists():
             evidence.append("pyproject.toml")
             tools.append("python")
-            if (folder / "uv.lock").exists():
-                evidence.append("uv.lock")
+            uv_workspace = relative != "." and (path / "uv.lock").exists() and (path / "pyproject.toml").exists() and "[tool.uv.workspace]" in (path / "pyproject.toml").read_text(encoding="utf-8")
+            if (folder / "uv.lock").exists() or uv_workspace:
+                evidence.append("uv.lock" if (folder / "uv.lock").exists() else "workspace-root:uv.lock")
                 tools.append("uv")
-                merge(commands, {"bootstrap": [step("uv", "sync", "--locked")]})
+                if uv_workspace:
+                    bootstrap_from = "root"
+                else:
+                    merge(commands, {"bootstrap": [step("uv", "sync", "--locked")]})
                 if (folder / "tests").is_dir():
                     merge(commands, {"test": [step("uv", "run", "--locked", "pytest")]})
                 content = (folder / "pyproject.toml").read_text(encoding="utf-8")
@@ -73,6 +78,9 @@ def discover(path: Path) -> dict:
             if (folder / lock).exists():
                 evidence.append(lock)
                 merge(commands, {"bootstrap": [step(manager, "install", "--frozen-lockfile") if manager == "pnpm" else step("npm", "ci")]})
+            elif relative != "." and (path / lock).exists() and (path / "package.json").exists():
+                evidence.append("workspace-root:" + lock)
+                bootstrap_from = "root"
             for canonical, names in {"test": ("test",), "lint": ("lint",), "typecheck": ("typecheck", "type-check"),
                                      "build": ("build",), "format": ("format",),
                                      "format-check": ("format:check", "format-check"),
@@ -100,6 +108,8 @@ def discover(path: Path) -> dict:
             "path": relative, "evidence": evidence, "tools": sorted(set(tools)), "commands": commands,
             "unconfigured": [name for name in ("test", "debug", "deploy-plan", "deploy", "verify-deploy") if not commands.get(name)]
         }
+        if bootstrap_from:
+            found["root" if relative == "." else relative.replace("/", "-")]["bootstrap_from"] = bootstrap_from
     return found
 
 

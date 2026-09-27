@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -8,6 +9,7 @@ import unittest
 
 from agent_env.bootstrap import discover, finalize, install
 from agent_env.runtime import load_registry, run_command
+from agent_env import VERSION
 
 
 class BootstrapIntegrationTests(unittest.TestCase):
@@ -29,7 +31,7 @@ class BootstrapIntegrationTests(unittest.TestCase):
         install(self.repo, discover(self.repo))
         self.assertTrue((self.repo / ".agents" / "skills" / "repo-agent-workflow" / "SKILL.md").is_file())
         record = json.loads((self.repo / ".agents" / "bootstrap.json").read_text())
-        self.assertEqual(record["pending_version"], "0.1.0")
+        self.assertEqual(record["pending_version"], VERSION)
         self.assertNotIn("applied_version", record)
         path = self.repo / ".agents" / "commands.json"
         registry = json.loads(path.read_text())
@@ -55,7 +57,7 @@ class BootstrapIntegrationTests(unittest.TestCase):
         (self.repo / ".agents" / "commands.json").write_text(json.dumps(registry))
         finalize(self.repo)
         record = json.loads((self.repo / ".agents" / "bootstrap.json").read_text())
-        self.assertEqual(record["applied_version"], "0.1.0")
+        self.assertEqual(record["applied_version"], VERSION)
         self.assertNotIn("pending_version", record)
         self.assertTrue((self.repo / ".local" / "cache" / "go-build").is_dir())
 
@@ -100,6 +102,15 @@ class BootstrapIntegrationTests(unittest.TestCase):
                                      capture_output=True, text=True, check=False)
         self.assertEqual(help_result.returncode, 0, help_result.stderr)
         self.assertIn("root", json.loads(help_result.stdout)["components"])
+        if os.name == "nt" and shutil.which("pwsh"):
+            wrapper = ["pwsh", "-NoProfile", "-File", str(self.repo / "scripts" / "agent-env.ps1")]
+        elif os.name != "nt":
+            wrapper = ["bash", str(self.repo / "scripts" / "agent-env.sh")]
+        else:
+            return
+        wrapped = subprocess.run(wrapper + ["list", "--json"], cwd=self.repo, capture_output=True, text=True)
+        self.assertEqual(wrapped.returncode, 0, wrapped.stderr)
+        self.assertIn("root", json.loads(wrapped.stdout)["components"])
 
     def test_missing_command_is_failure_and_no_shell_interpolation(self):
         (self.repo / "go.mod").write_text("module example.com/test\n\ngo 1.22\n")

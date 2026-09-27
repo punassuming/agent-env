@@ -32,6 +32,20 @@ PowerShell uses the same `python -m agent_env ...` command; substitute `py -3` i
 
 The target runner needs Python 3.11+ at execution time. For projects without Python, the agent should implement the same command contract in an already required runtime or task runner; no project should acquire a Python dependency solely for this convention. Native task tools and scripts remain authoritative where they already work.
 
+## Sync to your home directory
+
+From a local checkout, preview then sync its tracked files into `~/.agents/agent-env` and expose the skill at `~/.agents/skills/bootstrap-agent-env`:
+
+```bash
+python -m agent_env home plan
+python -m agent_env home sync
+python -m agent_env home status
+```
+
+Use `--claude` with `plan` and `sync` to also copy the canonical skill into `~/.claude/skills/bootstrap-agent-env`. PowerShell uses the same commands with `python` or `py -3`. `--home PATH` selects another `.agents` directory. Home sync is local and does not fetch changes from GitHub; update the source checkout first, then sync. The copied `~/.agents/agent-env` is a snapshot, not a Git checkout. You may instead clone the repository directly into `~/.agents/agent-env`, update it with Git, and run home sync there; the command recognizes that location and updates the exposed skill copies.
+
+The command stores a hash record in `~/.agents/agent-env-sync.json`. It can update previously synced files but aborts a sync if any destination has a local edit or an unrelated file at the same path. It never deletes destination files that are absent upstream; inspect stale files during an upgrade. It does not modify other skills in `~/.agents/skills`.
+
 From a bootstrapped repository:
 
 ```bash
@@ -87,3 +101,5 @@ python -m unittest discover -s tests -v
 ```
 
 The integration tests create disposable Git repos, test monorepo discovery, preserve local edits on reinstall, check failure propagation and finalization, and protect tracked `.local` files. They do not execute deployment or require Rust, Go, Android, or Node toolchains.
+
+The CI matrix runs on Linux, macOS, and Windows. Four independently authored [scenario fixtures](tests/scenarios) exercise a Python/uv workspace, a pnpm workspace, a flavored Android/Gradle project, and separate Go/Rust repositories coordinated by a workspace manifest. They use fake executables to check command routing without downloading toolchains. POSIX fake-tool scenarios skip Windows; core command and home-sync tests run there. The Android scenario confirms that variant tasks need an agent's project-specific selection; the bootstrap does not guess flavors or release signing.

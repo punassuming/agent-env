@@ -12,3 +12,6 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m unittest discover -s tests -v
+      - if: runner.os != 'Windows'
+        shell: bash
+        run: bash -n scripts/agent-env.sh examples/env.sh

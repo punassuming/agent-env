@@ -5,7 +5,7 @@ description: Assess, install, extend, or redeploy a repository's agent environme
 
 # Bootstrap and maintain an agent environment
 
-Current version: **0.1.0**. Read `references/recipes.md` for candidate toolchain commands and `references/contract.md` for the installed contract. The repository's actual commands and requirements take precedence over these examples.
+Current version: **0.2.0**. Read `references/recipes.md` for candidate toolchain commands and `references/contract.md` for the installed contract. The repository's actual commands and requirements take precedence over these examples.
 
 ## Assess and install
 
@@ -16,6 +16,8 @@ Current version: **0.1.0**. Read `references/recipes.md` for candidate toolchain
 5. Map components and dependencies. Validate a component directly; validate dependents on changes when the graph is known; otherwise run all affected candidates. Separate repos may use `scripts/workspace.py` with an explicit developer workspace manifest, while each repo retains its own runner.
 6. Run help, doctor, selected checks, and `validate --all` with real failures and successful paths. Add CI using the same registry; provision required toolchains there. Do not mark an unavailable check successful. Record changes and verification.
 7. Only after satisfactory validation, run `python -m agent_env finalize TARGET` in this source package to record the applied skill version. If validation cannot complete, keep a pending version and report it.
+
+For a reusable personal installation, run `python -m agent_env home plan` then `python -m agent_env home sync` from a source checkout. The latter stores the source under `~/.agents/agent-env` and exposes this skill in `~/.agents/skills`. If a destination differs from the last synced version, resolve the conflict rather than overwriting local changes. Use `--claude` to install a canonical skill copy into `~/.claude/skills` as well.
 
 ## Redeploy / upgrade
 
